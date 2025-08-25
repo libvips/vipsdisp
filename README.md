@@ -38,6 +38,9 @@ Just click "install", or enter:
 flatpak install flathub org.libvips.vipsdisp
 ```
 
+It's also on homebrew for macOS, and there are [x64 and arm64 Windows binaries 
+for each release](releases).
+
 ## Features
 
 * It supports many scientific and technical image formats, including TIFF,

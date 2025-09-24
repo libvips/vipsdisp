@@ -1,5 +1,9 @@
 master
 
+## 4.1.3 24/09/25
+
+- fix load cancel [keyboqrd]
+
 ## 4.1.2 02/08/25
 
 - add an icon to the exe on windows

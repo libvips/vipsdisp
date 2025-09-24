@@ -853,7 +853,7 @@ imagewindow_cancel_clicked(GtkWidget *button, Imagewindow *win)
 	VipsImage *image;
 
 	if ((tilesource = imagewindow_get_tilesource(win)) &&
-		(image = tilesource_get_image(tilesource)))
+		(image = tilesource_get_base_image(tilesource)))
 		vips_image_set_kill(image, TRUE);
 }
 

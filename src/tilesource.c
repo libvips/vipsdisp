@@ -1930,6 +1930,15 @@ tilesource_request_tile(Tilesource *tilesource, Tile *tile)
 		tile->region->valid.left, tile->region->valid.top);
 #endif /*DEBUG_VERBOSE*/
 
+	/* Load was cancelled, perhaps.
+	 */
+	if (tilesource->load_error) {
+		vips_error("Fetch tile", _("Unable to load image\n%s"), 
+			tilesource->load_message);
+
+		return -1;
+	}
+
 	/* Change z if necessary.
 	 */
 	if (tilesource->current_z != tile->z ||

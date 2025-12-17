@@ -177,8 +177,8 @@ flatpak remote-add --if-not-exists \
 Install the gtk4 SDK and runtime:
 
 ```shell
-flatpak install org.gnome.Sdk//48
-flatpak install org.gnome.Platform//48
+flatpak install org.gnome.Sdk//49
+flatpak install org.gnome.Platform//49
 ```
 
 Allow file. Recent security changes to git will cause submodule checkout

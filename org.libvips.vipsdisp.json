@@ -441,6 +441,26 @@
         },
 
         {
+            "name" : "libultrahdr",
+            "builddir" : true,
+            "buildsystem" : "cmake-ninja",
+            "build-options" : {
+                "config-opts" : [
+                    "-DCMAKE_INSTALL_LIBDIR=lib",
+                    "-DUHDR_BUILD_EXAMPLES=FALSE",
+                    "-DUHDR_MAX_DIMENSION=65500"
+                ]
+            },
+            "sources" : [
+                {
+                    "type" : "git",
+                    "url" : "https://github.com/google/libultrahdr.git",
+                    "tag" : "v1.4.0"
+                }
+            ]
+        },
+
+        {
             "name" : "libvips",
             "builddir" : true,
             "buildsystem" : "meson",
@@ -453,7 +473,7 @@
                 {
                     "type" : "git",
                     "url" : "https://github.com/libvips/libvips.git",
-                    "tag" : "v8.18.0-test1"
+                    "tag" : "v8.18.0"
                 }
             ]
         },
@@ -466,7 +486,7 @@
                 {
                     "type" : "git",
                     "url" : "https://github.com/jcupitt/vipsdisp.git",
-                    "tag" : "v4.1.2"
+                    "tag" : "v4.1.3"
                 }
             ]
         }

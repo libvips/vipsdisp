@@ -4,7 +4,9 @@ Vipsdisp can display huge (many, many gigabyte) images quickly and without
 using much memory. As well as the usual PNG, JPG, TIF, PDF, SVG, WEBP,
 JP2, JXL and GIF, it supports many scientific and technical image formats,
 including RAW, SVS, MRXS, OpenEXR, FITS, Matlab, NIfTI, Analyze, and
-PFM. Vipsdisp supports pixel types from 1 bit mono to 128-bit double precision
+PFM. It can also load camera RAW images, and UltraHDR.
+
+Vipsdisp supports pixel types from 1 bit mono to 128-bit double precision
 complex, you can convert image formats, it support copy-paste and drag-drop,
 and it has a range of useful visualisation tools and display modes.
 
@@ -45,8 +47,8 @@ for each release](https://github.com/jcupitt/vipsdisp/releases).
 
 * It supports many scientific and technical image formats, including TIFF,
   WEBP, JP2K, JXL, RAW, HEIC, AVIF, PNG, JPEG, SVS, MRXS, OpenEXR, GIF, PDF, 
-  SVG, FITS, Matlab, NIfTI, Analyze, etc. It supports many numeric pixel types,
-  any number of image bands, many colour spaces.
+  UHDR, SVG, FITS, Matlab, NIfTI, Analyze, etc. It supports many numeric pixel 
+  types, any number of image bands, many colour spaces.
 
 * It doesn't need to keep the whole image in memory. It will only read parts 
   that it needs for display, and it understands most pyramidal image formats.

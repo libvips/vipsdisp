@@ -43,6 +43,20 @@ flatpak install flathub org.libvips.vipsdisp
 It's also on homebrew for macOS, and there are [x64 and arm64 Windows binaries 
 for each release](https://github.com/jcupitt/vipsdisp/releases).
 
+If you see rendering problems on Windows, it's worth trying another backend.
+By default, vipsdisp uses Vulkan to draw the UI, and this can be a bit wonky
+on some older versions of win.
+
+If you see something like a blank window on startup, try:
+
+```console
+> set GSK_RENDERER=cairo
+> vipsdisp
+```
+  
+That will use a software only fallback to draw the UI and should work on any
+version of Windows, though it will be a bit slower.
+
 ## Features
 
 * It supports many scientific and technical image formats, including TIFF,
@@ -219,10 +233,6 @@ flatpak uninstall vipsdisp
 ## Notes on flatpak build process
 
 - niftiio is annoying to build, skip it.
-
-- x265 is annoying to build, skip it
-
-- we skip imagemagick as well, too huge
 
 ## Packaging for flathub
 

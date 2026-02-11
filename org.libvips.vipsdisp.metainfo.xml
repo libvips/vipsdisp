@@ -2,7 +2,8 @@
 <!-- Copyright 2023 jcupitt -->
 <component type="desktop-application">
   <id>org.libvips.vipsdisp</id>
-  <url type="homepage">https://github.com/jcupitt/vipsdisp</url>
+  <url type="homepage">https://github.com/libvips/vipsdisp</url>
+  <url type="vcs-browser">https://github.com/libvips/vipsdisp</url>
   <branding>
     <color type="primary" scheme_preference="light">#d4b526</color>
     <color type="primary" scheme_preference="dark">#6360d6</color>

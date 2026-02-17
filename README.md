@@ -7,7 +7,7 @@ including RAW, SVS, MRXS, OpenEXR, FITS, Matlab, NIfTI, Analyze, and
 PFM. It can also load camera RAW images, and UltraHDR.
 
 Vipsdisp supports pixel types from 1 bit mono to 128-bit double precision
-complex, you can convert image formats, it support copy-paste and drag-drop,
+complex, you can convert image formats, it implements copy-paste and drag-drop,
 and it has a range of useful visualisation tools and display modes.
 
 The vipsdisp image widget is [used by the image processing spreadsheet
@@ -30,7 +30,7 @@ https://youtu.be/KSoBkO2_HtE
 
 ## Install
 
-This program is on flathub, see:
+For linix, this program is on flathub, see:
 
 https://flathub.org/apps/org.libvips.vipsdisp
 
@@ -40,8 +40,10 @@ Just click "install", or enter:
 flatpak install flathub org.libvips.vipsdisp
 ```
 
-It's also on homebrew for macOS, and there are [x64 and arm64 Windows binaries 
-for each release](https://github.com/jcupitt/vipsdisp/releases).
+Use homebrew to install on macOS, and for Windows there are [x64 and arm64
+Windows binaries for each 
+release](https://github.com/jcupitt/vipsdisp/releases). Just unzip and run 
+the exe.
 
 If you see rendering problems on Windows, it's worth trying another backend.
 By default, vipsdisp uses Vulkan to draw the UI, and this can be a bit wonky
@@ -62,11 +64,11 @@ version of Windows, though it will be a bit slower.
 * It supports many scientific and technical image formats, including TIFF,
   WEBP, JP2K, JXL, RAW, HEIC, AVIF, PNG, JPEG, SVS, MRXS, OpenEXR, GIF, PDF, 
   UHDR, SVG, FITS, Matlab, NIfTI, Analyze, etc. It supports many numeric pixel 
-  types, any number of image bands, many colour spaces.
+  types, any number of image bands, and many colour spaces.
 
 * It doesn't need to keep the whole image in memory. It will only read parts 
-  that it needs for display, and it understands most pyramidal image formats.
-  This means you can open and view huge images quickly.
+  that it needs for display, and it understands most tiled and pyramidal
+  image formats.  This means you can open and view huge images quickly.
 
 * It has threaded, asynchronous display repaint, so pixels are
   computed in the background by a pool of workers. The interface stays live
@@ -82,39 +84,41 @@ version of Windows, though it will be a bit slower.
 * It supports high-DPI displays, so selecting 1:1 zoom will map one image
   pixel to one display hardware pixel. 
 
-* Select *Display control bar* from the top-right menu and a useful
+* Select **Display Control Bar** from the top-right menu and a useful
   set of visualization options appear. It supports four main display modes:
-  Toilet roll (sorry), Multipage, Animated, and Pages as Bands.
+  **Toilet Roll** (sorry), **Multipage**, **Animated**, and **Pages as
+  Bands**.
 
-* In Toilet roll mode, a multi-page image is presented as a tall, thin strip
-  of images. In Multipage, you see a single page at a time, with a page-select
-  spinner (you can also use the `crtl-<` and `ctrl->` keys to flip pages). In
-  animated mode, pages flip automatically on a timeout. In pages-as-bands
-  mode, many-page single-band images (eg. OME-TIFF) are presented as a 
-  single colour image.
+* In **Toilet Roll** mode, a multi-page image is presented as a tall, thin
+  strip of images. In **Multipage**, you see a single page at a time, with
+  a page-select spinner (you can also use the `crtl-<` and `ctrl->` keys to
+  flip pages). In **Animated** mode, pages flip automatically on a timeout.
+  In **Pages as Bands** mode, many-page single-band images (eg. OME-TIFF)
+  are presented as a single colour image.
 
-* You can select falsecolour and log-scale filters, useful for many scientific
+* You can select false colour and log-scale filters, useful for many scientific
   images. Scale and offset sliders let you adjust image brightness to see into
   darker areas (useful for HDR and many scientific images).
 
-* Select Save as to write an image. It can write most common formats, and lets
-  you set file save options. It can write things like DeepZoom pyramids, PFM,
-  OpenEXR, and so on.
+* Select **Save as** to write an image. It can write most common formats,
+  and lets you set file save options. It can write things like DeepZoom
+  pyramids, PFM, OpenEXR, and so on.
 
-* Select Properties (alt-Enter) to see image metadata. It can display large
+* Select **Properties** (alt-Enter) to see image metadata. It can display large
   amounts of metadata (useful for eg. DICOM) with filtering.
 
-* Use alt-Left and alt-Right to move between the set of images being
-  displayed, handy for browsing a directory of images. If you drag or load a
-  set of images, it'll flip between the images in the set. If you drag or load
-  a single image, it'll flip between all the images in that directory.
+* Use alt-Left and alt-Right to move through the set of images being
+  displayed -- very handy for browsing a directory of images. If you drag
+  or load a set of images, it'll flip between the images in the set. If you
+  drag or load a single image, it'll flip between all the images in that
+  directory.
 
 * It keeps the most recent three views live, so you can flip between them very
   quickly, and all view settings are preserved. This is handy for comparing
   details on two images.
 
-* `Duplicate window` crtl-D makes a copy of the window, so you can compare two
-  images side by side. 
+* **Duplicate Window** or crtl-D makes a copy of the window, so you can
+  compare two images side by side.
 
 * It supports copy/paste and drag/drop of filenames, sets of filenames, and
   textures. You can paste from the screenshot tool, or drag-drop images from

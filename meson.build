@@ -17,6 +17,10 @@ application_id = 'org.libvips.vipsdisp'
 pkg = import('pkgconfig')
 gnome = import('gnome')
 
+if get_option('flatpak')
+  add_project_arguments('-DFLATPAK', language: ['cpp', 'c'])
+endif
+
 cc = meson.get_compiler('c')
 config_h = configuration_data()
 

@@ -423,6 +423,9 @@
             "name" : "vipsdisp",
             "builddir" : true,
             "buildsystem" : "meson",
+            "config-opts" : [
+                "-Dflatpak=true"
+            ],
             "sources" : [
                 {
                     "type" : "git",

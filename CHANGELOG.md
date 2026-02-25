@@ -1,5 +1,8 @@
 master
 
+- set VIPS_UNLIMITED to disable DoS limits on file load for libvips 8.18+
+- unset VIPSHOME in flatpak builds
+
 ## 4.1.3 17/12/25
 
 - fix load cancel [keyboqrd]

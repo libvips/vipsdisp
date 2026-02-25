@@ -1,0 +1,6 @@
+option('flatpak',
+  type: 'boolean',
+  value: false,
+  description: 'Build for flatpak')
+
+

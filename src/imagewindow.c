@@ -285,7 +285,16 @@ sort_filenames(const void *a, const void *b)
 	const char *f1 = (const char *) a;
 	const char *f2 = (const char *) b;
 
-	return g_ascii_strcasecmp(f1, f2);
+	/* Case-sensitive utf-8 filename sort.
+	 */
+	char *a_fold = g_utf8_casefold(f1, -1);
+	char *b_fold = g_utf8_casefold(f2, -1);
+	int result = g_utf8_collate(a_fold, b_fold);
+
+	g_free(a_fold);
+	g_free(b_fold);
+
+	return result;
 }
 
 static void
@@ -335,7 +344,7 @@ imagewindow_files_set_path(Imagewindow *win, char *path)
 		g_autofree char *path = g_build_path("/", dirname, filename, NULL);
 		g_autoptr(GFile) this_file = g_file_new_for_path(path);
 
-		// - never add the the passed-in filename (we add it above)
+		// - never add the passed-in filename (we add it above)
 		// - avoid directories and dotfiles
 		if (!g_file_equal(file, this_file) &&
 			!vips_isprefix(".", filename) &&

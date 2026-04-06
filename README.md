@@ -30,7 +30,7 @@ https://youtu.be/KSoBkO2_HtE
 
 ## Install
 
-For linix, this program is on flathub, see:
+For Linux, this program is on flathub, see:
 
 https://flathub.org/apps/org.libvips.vipsdisp
 

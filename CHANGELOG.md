@@ -1,5 +1,7 @@
 master
 
+## 4.1.4 19/4/26
+
 - set VIPS_UNLIMITED to disable DoS limits on file load for libvips 8.18+
 - unset VIPSHOME in flatpak builds
 - alt-left / alt-right use case-insensitive utf-8 ordering [dreadbalaur]

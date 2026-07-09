@@ -73,8 +73,6 @@ void set_state(GtkWidget *to, GSettings *settings, const char *name);
 GVariant *get_state(GtkWidget *widget, const char *name);
 void copy_state(GtkWidget *to, GtkWidget *from, const char *name);
 
-void process_events(void);
-
 void block_scroll(GtkWidget *widget);
 
 gboolean widget_should_animate(GtkWidget *widget);

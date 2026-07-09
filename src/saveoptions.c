@@ -105,13 +105,42 @@ save_options_preeval(VipsImage *image,
 	gtk_action_bar_set_revealed(GTK_ACTION_BAR(options->progress_bar), TRUE);
 }
 
+typedef struct _EvalUpdate {
+	SaveOptions *options;
+	int eta;
+	int percent;
+} EvalUpdate;
+
+static gboolean
+save_options_eval_idle(void *user_data)
+{
+	EvalUpdate *update = (EvalUpdate *) user_data;
+	SaveOptions *options = update->options;
+
+	char str[256];
+	VipsBuf buf = VIPS_BUF_STATIC(str);
+
+	vips_buf_appendf(&buf, "%d%% complete, %d seconds to go",
+		update->percent, update->eta);
+	gtk_progress_bar_set_text(GTK_PROGRESS_BAR(options->progress),
+		vips_buf_all(&buf));
+
+	gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(options->progress),
+		update->percent / 100.0);
+
+	g_object_unref(options);
+
+	g_free(update);
+
+	return FALSE;
+}
+
 static void
 save_options_eval(VipsImage *image,
 	VipsProgress *progress, SaveOptions *options)
 {
 	double time_now;
-	char str[256];
-	VipsBuf buf = VIPS_BUF_STATIC(str);
+	EvalUpdate *update;
 
 	/* We can be ^Q'd during load. This is NULLed in _dispose.
 	 */
@@ -126,16 +155,26 @@ save_options_eval(VipsImage *image,
 		return;
 	options->last_progress_time = time_now;
 
-	vips_buf_appendf(&buf, "%d%% complete, %d seconds to go",
-		progress->percent, progress->eta);
-	gtk_progress_bar_set_text(GTK_PROGRESS_BAR(options->progress),
-		vips_buf_all(&buf));
+#ifdef DEBUG_VERBOSE
+	printf("save_options_eval: %d%%\n", progress->percent);
+#endif /*DEBUG_VERBOSE*/
 
-	gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(options->progress),
-		progress->percent / 100.0);
+	/* This can come from the background save thread, so we can't update
+	 * the UI directly.
+	 */
 
-	// run the main loop for a while
-	process_events();
+	update = g_new(EvalUpdate, 1);
+
+	update->options = options;
+	update->percent = progress->percent;
+	update->eta = progress->eta;
+
+	/* We don't want options to vanish before we process this update.
+	 * The matching unref is in the handler above.
+	 */
+	g_object_ref(options);
+
+	g_idle_add(save_options_eval_idle, update);
 }
 
 static void
@@ -298,23 +337,45 @@ save_options_set_argument(VipsObject *operation,
 }
 
 static void
-save_options_ok_action(GSimpleAction *action,
-	GVariant *parameter, gpointer user_data)
+save_options_build_thread(GTask *task,
+	gpointer source_object, gpointer task_data, GCancellable *cancellable)
 {
-	SaveOptions *options = SAVE_OPTIONS(user_data);
+	SaveOptions *options = SAVE_OPTIONS(source_object);
 
-	vips_argument_map(VIPS_OBJECT(options->save_operation),
-		save_options_set_argument, options, NULL);
+	g_task_return_boolean(task,
+		vips_cache_operation_buildp(&options->save_operation));
+}
 
-	// this will trigger the save and loop while we write ... the
-	// UI will stay live thanks to event processing in the eval
-	// handler
-	if (vips_cache_operation_buildp(&options->save_operation))
+static void
+save_options_build_done(GObject *source,
+	GAsyncResult *result, gpointer user_data)
+{
+	SaveOptions *options = SAVE_OPTIONS(source);
+
+	if (g_task_propagate_boolean(G_TASK(result), NULL))
 		save_options_error(options);
 	else
 		// everything worked, we can post success back to
 		// our caller
 		gtk_window_destroy(GTK_WINDOW(options));
+}
+
+static void
+save_options_ok_action(GSimpleAction *action,
+	GVariant *parameter, gpointer user_data)
+{
+	SaveOptions *options = SAVE_OPTIONS(user_data);
+	GTask *task;
+
+	vips_argument_map(VIPS_OBJECT(options->save_operation),
+		save_options_set_argument, options, NULL);
+
+	task = g_task_new(options, NULL,
+		save_options_build_done, NULL);
+
+	g_task_run_in_thread(task, save_options_build_thread);
+
+	g_object_unref(task);
 }
 
 static void

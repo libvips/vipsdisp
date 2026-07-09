@@ -150,8 +150,6 @@ progress_emit_begin(Progress *progress)
 static gboolean
 progress_emit_update(Progress *progress)
 {
-	process_events();
-
 	gboolean cancel = FALSE;
 	g_signal_emit(progress, progress_signals[SIG_UPDATE], 0, &cancel);
 
@@ -239,8 +237,6 @@ static void
 progress_event_signal(ProgressEvent *event)
 {
 	Progress *progress = progress_get();
-
-	process_events();
 
 	/* Throttle update events to 10Hz.
 	 */

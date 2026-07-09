@@ -295,6 +295,30 @@ save_options_set_argument(VipsObject *operation,
 }
 
 static void
+save_options_build_thread(GTask *task,
+	gpointer source_object, gpointer task_data, GCancellable *cancellable)
+{
+	SaveOptions *options = SAVE_OPTIONS(source_object);
+
+	g_task_return_boolean(task,
+		vips_cache_operation_buildp(&options->save_operation));
+}
+
+static void
+save_options_build_done(GObject *source,
+	GAsyncResult *result, gpointer user_data)
+{
+	SaveOptions *options = SAVE_OPTIONS(source);
+
+	if (g_task_propagate_boolean(G_TASK(result), NULL))
+		save_options_error(options);
+	else
+		// everything worked, we can post success back to
+		// our caller
+		gtk_window_destroy(GTK_WINDOW(options));
+}
+
+static void
 save_options_ok_action(GSimpleAction *action,
 	GVariant *parameter, gpointer user_data)
 {
@@ -303,15 +327,10 @@ save_options_ok_action(GSimpleAction *action,
 	vips_argument_map(VIPS_OBJECT(options->save_operation),
 		save_options_set_argument, options, NULL);
 
-	// this will trigger the save and loop while we write ... the
-	// UI will stay live thanks to event processing in the eval
-	// handler
-	if (vips_cache_operation_buildp(&options->save_operation))
-		save_options_error(options);
-	else
-		// everything worked, we can post success back to
-		// our caller
-		gtk_window_destroy(GTK_WINDOW(options));
+	g_autoptr(GTask) task = g_task_new(options, NULL,
+		save_options_build_done, NULL);
+
+	g_task_run_in_thread(task, save_options_build_thread);
 }
 
 static void

@@ -365,17 +365,14 @@ save_options_ok_action(GSimpleAction *action,
 	GVariant *parameter, gpointer user_data)
 {
 	SaveOptions *options = SAVE_OPTIONS(user_data);
-	GTask *task;
 
 	vips_argument_map(VIPS_OBJECT(options->save_operation),
 		save_options_set_argument, options, NULL);
 
-	task = g_task_new(options, NULL,
+	g_autoptr(GTask) task = g_task_new(options, NULL,
 		save_options_build_done, NULL);
 
 	g_task_run_in_thread(task, save_options_build_thread);
-
-	g_object_unref(task);
 }
 
 static void

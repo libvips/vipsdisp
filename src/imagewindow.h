@@ -1,3 +1,32 @@
+/* an image display window
+ */
+
+/*
+
+	Copyright (C) 1991-2003 The National Gallery
+
+	This program is free software; you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation; either version 2 of the License, or
+	(at your option) any later version.
+
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License along
+	with this program; if not, write to the Free Software Foundation, Inc.,
+	51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+ */
+
+/*
+
+	These files are distributed with VIPS - http://www.vips.ecs.soton.ac.uk
+
+*/
+
 #ifndef __IMAGEWINDOW_H
 #define __IMAGEWINDOW_H
 
@@ -14,18 +43,18 @@
 	(G_TYPE_INSTANCE_GET_CLASS((obj), IMAGEWINDOW_TYPE, ImagewindowClass))
 
 G_DECLARE_FINAL_TYPE(Imagewindow, imagewindow,
-	VIPSDISP, IMAGEWINDOW, GtkApplicationWindow)
+	NIP4, IMAGEWINDOW, GtkApplicationWindow)
 
-Imagewindow *imagewindow_new(VipsdispApp *app);
-void imagewindow_open_files(Imagewindow *win, char **files, int n_files);
-void imagewindow_open_gfiles(Imagewindow *win, GFile **gfiles, int n_files);
-void imagewindow_open_list_gfiles(Imagewindow *win, GSList *gfiles);
-void imagewindow_open_image(Imagewindow *win, VipsImage *image);
+Imagewindow *imagewindow_new(App *app);
+
 double imagewindow_get_zoom(Imagewindow *win);
 void imagewindow_get_mouse_position(Imagewindow *win,
 	double *image_x, double *image_y);
 Tilesource *imagewindow_get_tilesource(Imagewindow *win);
 GtkWidget *imagewindow_get_main_box(Imagewindow *win);
 GSettings *imagewindow_get_settings(Imagewindow *win);
+Imageui *imagewindow_get_imageui(Imagewindow *win);
+
+void imagewindow_set_iimage(Imagewindow *win, iImage *iimage);
 
 #endif /* __IMAGEWINDOW_H */

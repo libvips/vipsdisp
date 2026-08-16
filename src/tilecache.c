@@ -27,7 +27,7 @@
 
  */
 
-#include "vipsdisp.h"
+#include "nip4.h"
 
 /*
 #define DEBUG_RENDER_TIME
@@ -574,7 +574,7 @@ tilecache_class_init(TilecacheClass *class)
 		g_param_spec_enum("background",
 			_("Background"),
 			_("Background mode"),
-			TYPE_BACKGROUND,
+			TILECACHE_BACKGROUND_TYPE,
 			TILECACHE_BACKGROUND_CHECKERBOARD,
 			G_PARAM_READWRITE));
 
@@ -606,7 +606,7 @@ tilecache_class_init(TilecacheClass *class)
 		G_SIGNAL_RUN_LAST,
 		0,
 		NULL, NULL,
-		vipsdisp_VOID__POINTER_INT,
+		nip4_VOID__POINTER_INT,
 		G_TYPE_NONE, 2,
 		G_TYPE_POINTER,
 		G_TYPE_INT);

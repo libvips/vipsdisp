@@ -27,7 +27,7 @@
 
 */
 
-#include "vipsdisp.h"
+#include "nip4.h"
 
 /*
 #define DEBUG_VERBOSE
@@ -72,6 +72,10 @@ tslider_dispose(GObject *object)
 static double
 tslider_value_to_slider(Tslider *tslider, double value)
 {
+	// don't /0
+	if (tslider->to == tslider->from)
+		return 0;
+
 	/* Map our range to 0-1.
 	 */
 	const double scale = 1.0 / (tslider->to - tslider->from);
@@ -97,6 +101,10 @@ tslider_value_to_slider(Tslider *tslider, double value)
 static double
 tslider_slider_to_value(Tslider *tslider, double value)
 {
+	// don't /0
+	if (tslider->to == tslider->from)
+		return 0;
+
 	/* Map our range to 0-1.
 	 */
 	const double scale = 1.0 / (tslider->to - tslider->from);
@@ -393,6 +401,10 @@ tslider_set_conversions(Tslider *tslider,
 double
 tslider_log_value_to_slider(double from, double to, double value)
 {
+	// don't /0
+	if (to == from)
+		return 0;
+
 	/* What does 1.0 map to on our [0,1] scale?
 	 */
 	const double mapped1 = (1.0 - from) / (to - from);
@@ -409,6 +421,10 @@ tslider_log_value_to_slider(double from, double to, double value)
 double
 tslider_log_slider_to_value(double from, double to, double value)
 {
+	// don't /0
+	if (to == from)
+		return 0;
+
 	/* What does 1.0 map to on our [0,1] scale?
 	 */
 	const double mapped1 = (1.0 - from) / (to - from);

@@ -30,6 +30,22 @@
 #ifndef __DISPLAYBAR_H
 #define __DISPLAYBAR_H
 
+/* All the view settings we save and restore.
+ */
+typedef struct _ViewSettings {
+	gboolean valid;
+
+	TilesourceMode mode;
+	double scale;
+	double offset;
+	int page;
+	gboolean falsecolour;
+	gboolean log;
+	gboolean icc;
+	gboolean active;
+	TilecacheBackground background;
+} ViewSettings;
+
 #define DISPLAYBAR_TYPE (displaybar_get_type())
 
 G_DECLARE_FINAL_TYPE(Displaybar, displaybar, NIP4, DISPLAYBAR, GtkWidget)
@@ -38,5 +54,8 @@ G_DECLARE_FINAL_TYPE(Displaybar, displaybar, NIP4, DISPLAYBAR, GtkWidget)
 	(G_TYPE_CHECK_INSTANCE_CAST((obj), DISPLAYBAR_TYPE, Displaybar))
 
 Displaybar *displaybar_new(Imagewindow *win);
+ViewSettings *displaybar_get_view_settings(Displaybar *displaybar);
+void displaybar_set_view_settings(Displaybar *displaybar,
+	ViewSettings *view_settings);
 
 #endif /* __DISPLAYBAR_H */

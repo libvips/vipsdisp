@@ -1,4 +1,4 @@
-/* a status bar for the image display window
+/* a status bar for the iamge display window
  */
 
 /*

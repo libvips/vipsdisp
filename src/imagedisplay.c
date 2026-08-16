@@ -27,7 +27,7 @@
 
  */
 
-#include "vipsdisp.h"
+#include "nip4.h"
 
 /*
 #define DEBUG_VERBOSE
@@ -127,13 +127,14 @@ enum {
 	PROP_X,
 	PROP_Y,
 
+	/* Read out display density with this.
+	 */
+	PROP_PIXEL_SIZE,
+
 	/* Draw snapshot in debug mode.
 	 */
 	PROP_DEBUG,
 
-	/* Read out display density with this.
-	 */
-	PROP_PIXEL_SIZE,
 };
 
 enum {
@@ -468,6 +469,10 @@ imagedisplay_property_name(guint prop_id)
 		return "Y";
 		break;
 
+	case PROP_PIXEL_SIZE:
+		return "PIXEL_SIZE";
+		break;
+
 	case PROP_DEBUG:
 		return "DEBUG";
 		break;
@@ -578,11 +583,6 @@ imagedisplay_set_property(GObject *object,
 		gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 		break;
 
-	case PROP_DEBUG:
-		imagedisplay->debug = g_value_get_boolean(value);
-		gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
-		break;
-
 	case PROP_PIXEL_SIZE:
 		d = g_value_get_double(value);
 		if (imagedisplay->pixel_size != d) {
@@ -590,6 +590,11 @@ imagedisplay_set_property(GObject *object,
 			imagedisplay_layout(imagedisplay);
 			gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 		}
+		break;
+
+	case PROP_DEBUG:
+		imagedisplay->debug = g_value_get_boolean(value);
+		gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 		break;
 
 	default:
@@ -647,12 +652,12 @@ imagedisplay_get_property(GObject *object,
 		g_value_set_double(value, imagedisplay->y);
 		break;
 
-	case PROP_DEBUG:
-		g_value_set_boolean(value, imagedisplay->debug);
-		break;
-
 	case PROP_PIXEL_SIZE:
 		g_value_set_double(value, imagedisplay->pixel_size);
+		break;
+
+	case PROP_DEBUG:
+		g_value_set_boolean(value, imagedisplay->debug);
 		break;
 
 	default:
@@ -677,12 +682,13 @@ imagedisplay_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 	 */
 	gtk_snapshot_push_clip(snapshot,
 		&GRAPHENE_RECT_INIT(0, 0,
-			gtk_widget_get_width(widget), gtk_widget_get_height(widget)));
+			gtk_widget_get_width(widget),
+			gtk_widget_get_height(widget)));
 
 	gtk_snapshot_save(snapshot);
 
 	/* This can change on each repaint as windows are dragged.
-	 */
+	*/
 	GtkNative *native = gtk_widget_get_native(widget);
 	GdkSurface *surface = gtk_native_get_surface(native);
 	double pixel_size = 1.0 / gdk_surface_get_scale(surface);
@@ -703,15 +709,15 @@ imagedisplay_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 	if (imagedisplay->tilecache &&
 		imagedisplay->tilecache->n_levels > 0)
 		tilecache_snapshot(imagedisplay->tilecache, snapshot,
-			imagedisplay->scale / pixel_size, 
-			imagedisplay->x / pixel_size, 
+			imagedisplay->scale / pixel_size,
+			imagedisplay->x / pixel_size,
 			imagedisplay->y / pixel_size,
 			&paint, imagedisplay->debug);
 
-	// undo snap and scale
+	// back to a non-scaled snapshot
 	gtk_snapshot_restore(snapshot);
 
-	// draw any overlays back in the regular coordinate space
+	// draw any overlays
 	imagedisplay_overlay_snapshot(imagedisplay, snapshot);
 
 	// end of clip
@@ -853,18 +859,18 @@ imagedisplay_class_init(ImagedisplayClass *class)
 			-VIPS_MAX_COORD, VIPS_MAX_COORD, 0,
 			G_PARAM_READWRITE));
 
-	g_object_class_install_property(gobject_class, PROP_DEBUG,
-		g_param_spec_boolean("debug",
-			_("Debug"),
-			_("Render snapshot in debug mode"),
-			FALSE,
-			G_PARAM_READWRITE));
-
 	g_object_class_install_property(gobject_class, PROP_PIXEL_SIZE,
 		g_param_spec_double("pixel-size",
 			_("Pixel size"),
 			_("Size of hardware display pixels in gtk coordinates"),
 			0.0, 10.0, 0.0,
+			G_PARAM_READWRITE));
+
+	g_object_class_install_property(gobject_class, PROP_DEBUG,
+		g_param_spec_boolean("debug",
+			_("Debug"),
+			_("Render snapshot in debug mode"),
+			FALSE,
 			G_PARAM_READWRITE));
 
 	g_object_class_override_property(gobject_class,

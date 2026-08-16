@@ -45,12 +45,18 @@
 G_DECLARE_FINAL_TYPE(Imageui, imageui, NIP4, IMAGEUI, GtkWidget)
 
 void imageui_queue_draw(Imageui *imageui);
+void imageui_add_regionview(Imageui *imageui, Regionview *regionview);
+void imageui_remove_regionview(Imageui *imageui, Regionview *regionview);
 
 Tilesource *imageui_get_tilesource(Imageui *imageui);
 double imageui_get_scale(Imageui *imageui);
 void imageui_get_mouse_position(Imageui *imageui,
 	double *image_x, double *image_y);
 
+gboolean imageui_snap_point(Imageui *imageui, int x, int y, int *sx, int *sy);
+gboolean imageui_snap_rect(Imageui *imageui, VipsRect *in, VipsRect *out);
+
+Regionview *imageui_pick_regionview(Imageui *imageui, int x, int y);
 double imageui_get_zoom(Imageui *imageui);
 void imageui_bestfit(Imageui *imageui);
 void imageui_magin(Imageui *imageui);
@@ -58,7 +64,7 @@ void imageui_magout(Imageui *imageui);
 void imageui_oneone(Imageui *imageui);
 gboolean imageui_scale(Imageui *imageui);
 
-Imageui *imageui_new(Tilesource *tilesource);
+Imageui *imageui_new(Tilesource *tilesource, iImage *iimage);
 Imageui *imageui_duplicate(Tilesource *tilesource, Imageui *old_imageui);
 
 void imageui_image_to_gtk(Imageui *imageui,

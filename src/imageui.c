@@ -31,7 +31,7 @@
 #define DEBUG
  */
 
-#include "vipsdisp.h"
+#include "nip4.h"
 
 /*
 #define DEBUG_VERBOSE
@@ -55,7 +55,7 @@ const int imageui_snap_threshold = 10;
 typedef enum {
 	IMAGEUI_WAIT,	/* Waiting for left down */
 	IMAGEUI_SELECT, /* Manipulating a selected region */
-	IMAGEUI_SCROLL, /* Drag-scrolling the image */
+	IMAGEUI_SCROLL, /* Drag-scrolling the iamge */
 	IMAGEUI_CREATE, /* Dragging out a new region */
 } ImageuiState;
 
@@ -67,6 +67,13 @@ struct _Imageui {
 	/* The zoom factor that was used at load time, handy for scaling SVGs.
 	 */
 	double zoom_load;
+
+	/* The iimage we represent ... we add/remove ourselves from iimage->views
+	 * so that iregiongroupview.c can find us.
+	 *
+	 * notaref
+	 */
+	iImage *iimage;
 
 	/* Last known mouse position, in gtk coordinates. We keep these in gtk
 	 * cods so we don't need to update them on pan / zoom.
@@ -103,10 +110,21 @@ struct _Imageui {
 	 */
 	gboolean eased;
 
+	/* All the regionviews we manage. True references.
+	 */
+	GSList *regionviews;
+
+	/* Region manipulation.
+	 */
+	Regionview *grabbed;	/* Currently grabbed */
 	int window_left;		/* Window position at start of scroll */
 	int window_top;
 	int start_x;			/* Mouse position at start of scroll */
 	int start_y;
+
+	/* We use a floating regionview (no symbol) during eg. region create.
+	 */
+	Regionview *floating;
 
 	GtkWidget *scrolled_window;
 	GtkWidget *imagedisplay;
@@ -121,6 +139,7 @@ G_DEFINE_TYPE(Imageui, imageui, GTK_TYPE_WIDGET);
 
 enum {
 	PROP_TILESOURCE = 1,
+	PROP_IIMAGE,
 	PROP_BACKGROUND,
 	PROP_ZOOM,
 	PROP_X,
@@ -140,10 +159,112 @@ enum {
 
 static guint imageui_signals[SIG_LAST] = { 0 };
 
+static GdkCursor *imageui_cursors[REGIONVIEW_RESIZE_LAST] = { NULL };
+
+// indexes must match Cursor
+static const char *imageui_cursor_names[REGIONVIEW_RESIZE_LAST] = {
+	"none",
+
+	"move",
+
+	"cell",
+
+	"nwse-resize",
+	"n-resize",
+	"nesw-resize",
+	"e-resize",
+	"nwse-resize",
+	"s-resize",
+	"nesw-resize",
+	"w-resize",
+};
+
+static void *
+imageui_add_region(Classmodel *classmodel, Imageui *imageui)
+{
+	iRegionInstance *instance;
+
+	if (MODEL(classmodel)->display &&
+		(instance = classmodel_get_instance(classmodel)))
+		imageui_add_regionview(imageui, regionview_new(classmodel));
+
+	return NULL;
+}
+
+static void
+imageui_set_iimage(Imageui *imageui, iImage *iimage)
+{
+	if (imageui->iimage) {
+		imageui->iimage->views =
+			g_slist_remove(imageui->iimage->views, imageui);
+		imageui->iimage = NULL;
+	}
+
+	if (iimage) {
+		imageui->iimage = iimage;
+		iimage->views = g_slist_prepend(iimage->views, imageui);
+
+		slist_map(iimage->classmodels,
+			(SListMapFn) imageui_add_region, imageui);
+	}
+}
+
 void
 imageui_queue_draw(Imageui *imageui)
 {
 	gtk_widget_queue_draw(GTK_WIDGET(imageui->imagedisplay));
+}
+
+void
+imageui_add_regionview(Imageui *imageui, Regionview *regionview)
+{
+	g_assert(!g_slist_find(imageui->regionviews, regionview));
+	g_assert(!regionview->imageui);
+
+	imageui->regionviews = g_slist_prepend(imageui->regionviews, regionview);
+	g_object_ref_sink(regionview);
+	regionview->imageui = imageui;
+
+	imageui_queue_draw(imageui);
+}
+
+void
+imageui_remove_regionview(Imageui *imageui, Regionview *regionview)
+{
+	g_assert(g_slist_find(imageui->regionviews, regionview));
+
+	imageui->regionviews = g_slist_remove(imageui->regionviews, regionview);
+	regionview->imageui = NULL;
+	g_object_unref(regionview);
+
+	imageui_queue_draw(imageui);
+}
+
+static void
+imageui_floating_remove(Imageui *imageui)
+{
+	if (imageui->floating) {
+		imageui_remove_regionview(imageui, imageui->floating);
+		imageui->floating = NULL;
+	}
+}
+
+static void
+imageui_floating_add(Imageui *imageui, int x, int y)
+{
+	imageui_floating_remove(imageui);
+
+	Regionview *floating = regionview_new(NULL);
+	imageui_add_regionview(imageui, floating);
+	imageui->floating = floating;
+
+	floating->type = REGIONVIEW_MARK;
+	floating->our_area = (VipsRect){ x, y, 0, 0 };
+	floating->draw_type = floating->type;
+	floating->draw_area = floating->our_area;
+	floating->start_area = floating->our_area;
+	floating->resize = REGIONVIEW_RESIZE_BOTTOMRIGHT;
+	floating->frozen = FALSE;
 }
 
 static void
@@ -155,6 +276,15 @@ imageui_dispose(GObject *object)
 	printf("imageui_dispose:\n");
 #endif /*DEBUG*/
 
+	while (imageui->regionviews) {
+		Regionview *regionview = REGIONVIEW(imageui->regionviews->data);
+
+		imageui_remove_regionview(imageui, regionview);
+	}
+
+	imageui_floating_remove(imageui);
+
+	imageui_set_iimage(imageui, NULL);
 	VIPS_FREEF(gtk_widget_unparent, imageui->scrolled_window);
 
 	G_OBJECT_CLASS(imageui_parent_class)->dispose(object);
@@ -177,6 +307,10 @@ imageui_property_name(guint prop_id)
 	switch (prop_id) {
 	case PROP_TILESOURCE:
 		return "TILESOURCE";
+		break;
+
+	case PROP_IIMAGE:
+		return "IIMAGE";
 		break;
 
 	case PROP_BACKGROUND:
@@ -230,11 +364,17 @@ imageui_set_property(GObject *object,
 		imageui->tilesource = TILESOURCE(g_value_get_object(value));
 		if (imageui->tilesource)
 			imageui->zoom_load = imageui->tilesource->zoom;
+
+		break;
+
+	case PROP_IIMAGE:
+		imageui_set_iimage(imageui, IIMAGE(g_value_get_object(value)));
 		break;
 
 	case PROP_BACKGROUND:
 		g_object_set_property(G_OBJECT(imageui->imagedisplay),
 			"background", value);
+		imageui_changed(imageui);
 		break;
 
 	case PROP_ZOOM:
@@ -246,6 +386,7 @@ imageui_set_property(GObject *object,
 		g_object_set(imageui->imagedisplay,
 			"zoom", zoom,
 			NULL);
+
 		break;
 
 	case PROP_X:
@@ -282,6 +423,10 @@ imageui_get_property(GObject *object,
 		g_value_set_object(value, imageui->tilesource);
 		break;
 
+	case PROP_IIMAGE:
+		g_value_set_object(value, imageui->iimage);
+		break;
+
 	case PROP_BACKGROUND:
 		g_object_get_property(G_OBJECT(imageui->imagedisplay),
 			"background", value);
@@ -307,7 +452,7 @@ imageui_get_property(GObject *object,
 		break;
 
 	case PROP_PIXEL_SIZE:
-		g_object_get_property(G_OBJECT(imageui->imagedisplay), 
+		g_object_get_property(G_OBJECT(imageui->imagedisplay),
 			"pixel-size", value);
 		break;
 
@@ -323,6 +468,18 @@ imageui_get_property(GObject *object,
 			imageui_property_name(prop_id), str);
 	}
 #endif /*DEBUG_VERBOSE*/
+}
+
+static double
+imageui_get_pixel_size(Imageui *imageui)
+{
+   double pixel_size;
+
+   g_object_get(imageui,
+	   "pixel-size", &pixel_size,
+	   NULL);
+
+   return pixel_size;
 }
 
 Tilesource *
@@ -348,6 +505,143 @@ imageui_get_position(Imageui *imageui,
 #ifdef DEBUG_VERBOSE
 	printf("imageui_get_position: %d %d %d %d\n", *left, *top, *width, *height);
 #endif /*DEBUG_VERBOSE*/
+}
+
+/* Track this during a snap.
+ */
+typedef struct {
+	Imageui *imageui;
+
+	int x;			/* Start point */
+	int y;
+	int off_x;		/* Current snap offset */
+	int off_y;
+	int best_x;		/* 'Closeness' of best snap so far */
+	int best_y;
+} ImageuiSnap;
+
+static void *
+imageui_snap_sub(Regionview *regionview, ImageuiSnap *snap, gboolean *snapped)
+{
+	/* Only static h/v guides.
+	 */
+	if (regionview->type != REGIONVIEW_HGUIDE &&
+		regionview->type != REGIONVIEW_VGUIDE)
+		return NULL;
+
+	if (regionview->type == REGIONVIEW_HGUIDE) {
+		int y = regionview->our_area.top;
+		int score = abs(y - snap->y);
+
+		if (score < snap->best_y) {
+			snap->off_y = y - snap->y;
+			snap->best_y = score;
+			*snapped = TRUE;
+		}
+	}
+	else {
+		int x = regionview->our_area.left;
+		int score = abs(x - snap->x);
+
+		if (score < snap->best_x) {
+			snap->off_x = x - snap->x;
+			snap->best_x = score;
+			*snapped = TRUE;
+		}
+	}
+
+	return NULL;
+}
+
+static gboolean
+imageui_snap(Imageui *imageui, ImageuiSnap *snap)
+{
+	gboolean snapped;
+
+	// scale the snap threshold by the zoom factor
+	snap->imageui = imageui;
+	snap->off_x = 0;
+	snap->off_y = 0;
+	snap->best_x =
+		VIPS_MAX(1, imageui_snap_threshold / imageui_get_zoom(imageui));
+	snap->best_y =
+		VIPS_MAX(1, imageui_snap_threshold / imageui_get_zoom(imageui));
+
+	snapped = FALSE;
+	slist_map2(imageui->regionviews,
+		(SListMap2Fn) imageui_snap_sub, snap, &snapped);
+
+	return snapped;
+}
+
+gboolean
+imageui_snap_point(Imageui *imageui, int x, int y, int *sx, int *sy)
+{
+	ImageuiSnap snap;
+	gboolean snapped;
+
+	snap.x = x;
+	snap.y = y;
+	snapped = imageui_snap(imageui, &snap);
+
+	*sx = x + snap.off_x;
+	*sy = y + snap.off_y;
+
+	return snapped;
+}
+
+gboolean
+imageui_snap_rect(Imageui *imageui, VipsRect *in, VipsRect *out)
+{
+	/* Snap the corners plus the edge centres, take the best score.
+	 */
+	ImageuiSnap snap[8];
+	snap[0].x = in->left;
+	snap[0].y = in->top;
+	snap[1].x = in->left + in->width;
+	snap[1].y = in->top;
+	snap[2].x = in->left + in->width;
+	snap[2].y = in->top + in->height;
+	snap[3].x = in->left;
+	snap[3].y = in->top + in->height;
+	snap[4].x = in->left + in->width / 2;
+	snap[4].y = in->top;
+	snap[5].x = in->left + in->width;
+	snap[5].y = in->top + in->height / 2;
+	snap[6].x = in->left + in->width / 2;
+	snap[6].y = in->top + in->height;
+	snap[7].x = in->left;
+	snap[7].y = in->top + in->height / 2;
+
+	gboolean snapped;
+	snapped = FALSE;
+	for (int i = 0; i < 8; i++)
+		snapped |= imageui_snap(imageui, &snap[i]);
+
+	int best;
+	int best_score;
+	best = 0;
+	best_score = snap[0].best_x;
+	for (int i = 1; i < 7; i++)
+		if (snap[i].best_x < best_score) {
+			best = i;
+			best_score = snap[i].best_x;
+		}
+	out->left = in->left + snap[best].off_x;
+
+	best = 0;
+	best_score = snap[0].best_y;
+	for (int i = 1; i < 7; i++)
+		if (snap[i].best_y < best_score) {
+			best = i;
+			best_score = snap[i].best_y;
+		}
+	out->top = in->top + snap[best].off_y;
+
+	out->width = in->width;
+	out->height = in->height;
+
+	return snapped;
 }
 
 static void
@@ -442,18 +736,6 @@ imageui_get_zoom(Imageui *imageui)
 		NULL);
 
 	return zoom;
-}
-
-double
-imageui_get_pixel_size(Imageui *imageui)
-{
-	double pixel_size;
-
-	g_object_get(imageui,
-		"pixel-size", &pixel_size,
-		NULL);
-
-	return pixel_size;
 }
 
 static gboolean
@@ -812,7 +1094,7 @@ imageui_key_pressed(GtkEventControllerKey *self,
 				if (state & GDK_CONTROL_MASK)
 					zoom = 1.0 / zoom;
 
-				imageui_zoom_to_eased(imageui, 
+				imageui_zoom_to_eased(imageui,
 					zoom * imageui_get_pixel_size(imageui));
 
 				handled = TRUE;
@@ -850,34 +1132,101 @@ imageui_key_released(GtkEventControllerKey *self,
 	return handled;
 }
 
+// (x, y) in gtk cods
+Regionview *
+imageui_pick_regionview(Imageui *imageui, int x, int y)
+{
+	for (GSList *p = imageui->regionviews; p; p = p->next) {
+		Regionview *regionview = REGIONVIEW(p->data);
+		RegionviewResize resize = regionview_hit(regionview, x, y);
+
+		if (resize != REGIONVIEW_RESIZE_NONE)
+			return regionview;
+	}
+
+	return NULL;
+}
+
 static void
 imageui_drag_begin(GtkEventControllerMotion *self,
 	gdouble start_x, gdouble start_y, gpointer user_data)
 {
+	GtkEventController *controller = GTK_EVENT_CONTROLLER(self);
+	GdkModifierType modifiers =
+		gtk_event_controller_get_current_event_state(controller);
 	Imageui *imageui = IMAGEUI(user_data);
+
+	Regionview *regionview;
 
 #ifdef DEBUG_VERBOSE
 	printf("imageui_drag_begin: start_x = %g, start_y = %g\n",
 		start_x, start_y);
 #endif /*DEBUG_VERBOSE*/
 
-	int window_left;
-	int window_top;
-	int window_width;
-	int window_height;
-	imageui_get_position(imageui,
-		&window_left, &window_top, &window_width, &window_height);
-	imageui->window_left = window_left;
-	imageui->window_top = window_top;
-	imageui->start_x = start_x;
-	imageui->start_y = start_y;
+	switch (imageui->state) {
+	case IMAGEUI_WAIT:
+		regionview = imageui_pick_regionview(imageui, start_x, start_y);
+
+		if (regionview) {
+			imageui->state = IMAGEUI_SELECT;
+			regionview->resize = regionview_hit(regionview, start_x, start_y);
+			imageui->grabbed = regionview;
+			g_object_ref(regionview);
+			regionview->start_area = regionview->our_area;
+		}
+		else if (modifiers & GDK_CONTROL_MASK) {
+			imageui->state = IMAGEUI_CREATE;
+			double left;
+			double top;
+			imageui_gtk_to_image(imageui, start_x, start_y, &left, &top);
+			imageui_floating_add(imageui, left, top);
+		}
+		else {
+			int window_left;
+			int window_top;
+			int window_width;
+			int window_height;
+			imageui_get_position(imageui,
+				&window_left, &window_top, &window_width, &window_height);
+			imageui->window_left = window_left;
+			imageui->window_top = window_top;
+			imageui->start_x = start_x;
+			imageui->start_y = start_y;
+		}
+
+		break;
+
+	case IMAGEUI_SELECT:
+		break;
+
+	case IMAGEUI_SCROLL:
+		break;
+
+	case IMAGEUI_CREATE:
+		break;
+
+	default:
+		break;
+	}
+}
+
+static void
+imageui_regionview_update(Imageui *imageui, Regionview *regionview)
+{
+	regionview->draw_area = regionview->our_area;
+	regionview->draw_type = regionview->type;
+	imageui_queue_draw(imageui);
 }
 
 static void
 imageui_drag_update(GtkEventControllerMotion *self,
 	gdouble offset_x, gdouble offset_y, gpointer user_data)
 {
+	GtkEventController *controller = GTK_EVENT_CONTROLLER(self);
+	GdkModifierType modifiers =
+		gtk_event_controller_get_current_event_state(controller);
 	Imageui *imageui = IMAGEUI(user_data);
+	double zoom = imageui_get_zoom(imageui);
 
 #ifdef DEBUG_VERBOSE
 	printf("imageui_drag_update: offset_x = %g, offset_y = %g\n",
@@ -891,6 +1240,29 @@ imageui_drag_update(GtkEventControllerMotion *self,
 			imageui->state = IMAGEUI_SCROLL;
 		break;
 
+	case IMAGEUI_SELECT:
+		regionview_resize(imageui->grabbed, modifiers,
+			imageui->tilesource->image_width, imageui->tilesource->image_height,
+			offset_x / zoom, offset_y / zoom);
+
+		/* Refresh immediately .. gives immediate feedback during drag in large
+		 * workspaces, especially on windows.
+		 */
+		imageui_regionview_update(imageui, imageui->grabbed);
+
+		/* And nudge background recomp.
+		 */
+		regionview_model_update(imageui->grabbed);
+
+		break;
+
+	case IMAGEUI_CREATE:
+		regionview_resize(imageui->floating, modifiers,
+			imageui->tilesource->image_width, imageui->tilesource->image_height,
+			offset_x / zoom, offset_y / zoom);
+		imageui_regionview_update(imageui, imageui->floating);
+		break;
+
 	case IMAGEUI_SCROLL:
 		imageui_set_position(imageui,
 			imageui->window_left - offset_x, imageui->window_top - offset_y);
@@ -898,6 +1270,69 @@ imageui_drag_update(GtkEventControllerMotion *self,
 
 	default:
 		break;
+	}
+}
+
+static void
+imageui_region_new(Imageui *imageui, RegionviewType type, VipsRect *rect)
+{
+	Row *row = imageui->iimage ? HEAPMODEL(imageui->iimage)->row : NULL;
+
+	if (row) {
+		char txt[MAX_STRSIZE];
+		VipsBuf buf = VIPS_BUF_STATIC(txt);
+		Symbol *sym;
+
+		switch (type) {
+		case REGIONVIEW_MARK:
+			vips_buf_appendf(&buf, "%s ", CLASS_MARK);
+			row_qualified_name(row, &buf);
+			vips_buf_appendd(&buf, rect->left);
+			vips_buf_appendd(&buf, rect->top);
+			break;
+
+		case REGIONVIEW_REGION:
+			vips_buf_appendf(&buf, "%s ", CLASS_REGION);
+			row_qualified_name(row, &buf);
+			vips_buf_appendd(&buf, rect->left);
+			vips_buf_appendd(&buf, rect->top);
+			vips_buf_appendd(&buf, rect->width);
+			vips_buf_appendd(&buf, rect->height);
+			break;
+
+		case REGIONVIEW_ARROW:
+			vips_buf_appendf(&buf, "%s ", CLASS_ARROW);
+			row_qualified_name(row, &buf);
+			vips_buf_appendd(&buf, rect->left);
+			vips_buf_appendd(&buf, rect->top);
+			vips_buf_appendd(&buf, rect->width);
+			vips_buf_appendd(&buf, rect->height);
+			break;
+
+		case REGIONVIEW_HGUIDE:
+			vips_buf_appendf(&buf, "%s ", CLASS_HGUIDE);
+			row_qualified_name(row, &buf);
+			vips_buf_appendd(&buf, VIPS_RECT_BOTTOM(rect));
+			break;
+
+		case REGIONVIEW_VGUIDE:
+			vips_buf_appendf(&buf, "%s ", CLASS_VGUIDE);
+			row_qualified_name(row, &buf);
+			vips_buf_appendd(&buf, VIPS_RECT_RIGHT(rect));
+			break;
+
+		default:
+			g_assert_not_reached();
+		}
+
+		if (!(sym = workspace_add_def_recalc(row->ws, vips_buf_all(&buf)))) {
+			GtkWindow *window =
+				GTK_WINDOW(gtk_widget_get_root(GTK_WIDGET(imageui)));
+
+			error_alert(window);
+		}
+
+		workspace_deselect_all(row->ws);
 	}
 }
 
@@ -912,7 +1347,60 @@ imageui_drag_end(GtkEventControllerMotion *self,
 		offset_x, offset_y);
 #endif /*DEBUG_VERBOSE*/
 
+	switch (imageui->state) {
+	case IMAGEUI_WAIT:
+		break;
+
+	case IMAGEUI_SELECT:
+		regionview_model_update(imageui->grabbed);
+		VIPS_UNREF(imageui->grabbed);
+		break;
+
+	case IMAGEUI_CREATE:
+		if (imageui->floating) {
+			imageui_region_new(imageui,
+				imageui->floating->type, &imageui->floating->our_area);
+			imageui_floating_remove(imageui);
+		}
+
+		imageui_queue_draw(imageui);
+
+		break;
+
+	case IMAGEUI_SCROLL:
+		break;
+
+	default:
+		break;
+	}
+
 	imageui->state = IMAGEUI_WAIT;
+}
+
+static void
+imageui_set_cursor(Imageui *imageui)
+{
+	RegionviewResize resize;
+
+	resize = REGIONVIEW_RESIZE_NONE;
+
+	if (imageui->grabbed)
+		resize = imageui->grabbed->resize;
+	else {
+		int x = imageui->last_x_gtk;
+		int y = imageui->last_y_gtk;
+
+		Regionview *regionview;
+
+		if ((regionview = imageui_pick_regionview(imageui, x, y)))
+			resize = regionview_hit(regionview, x, y);
+	}
+
+	GdkCursor *cursor;
+	cursor = NULL;
+	if (resize != REGIONVIEW_RESIZE_NONE)
+		cursor = imageui_cursors[resize];
+	gtk_widget_set_cursor(GTK_WIDGET(imageui), cursor);
 }
 
 static void
@@ -928,6 +1416,7 @@ imageui_motion(GtkEventControllerMotion *self,
 	imageui->last_x_gtk = x;
 	imageui->last_y_gtk = y;
 
+	imageui_set_cursor(imageui);
 	imageui_changed(imageui);
 }
 
@@ -956,6 +1445,18 @@ imageui_scroll(GtkEventControllerMotion *self,
 	return TRUE;
 }
 
+// from the imagedisplay snapshot method: draw any visible regions
+static void
+imageui_overlay_snapshot(Imagedisplay *imagedisplay,
+	GtkSnapshot *snapshot, Imageui *imageui)
+{
+	for (GSList *p = imageui->regionviews; p; p = p->next) {
+		Regionview *regionview = REGIONVIEW(p->data);
+
+		regionview_draw(regionview, snapshot);
+	}
+}
+
 static void
 imageui_init(Imageui *imageui)
 {
@@ -966,6 +1467,9 @@ imageui_init(Imageui *imageui)
 	gtk_widget_init_template(GTK_WIDGET(imageui));
 
 	imageui->zoom_rate = 1.0;
+
+	g_signal_connect_object(G_OBJECT(imageui->imagedisplay), "snapshot",
+		G_CALLBACK(imageui_overlay_snapshot), imageui, 0);
 
 	/* Uncomment to test our animation disable
 	g_object_set(gtk_widget_get_settings(GTK_WIDGET(win)),
@@ -1008,6 +1512,13 @@ imageui_class_init(ImageuiClass *class)
 			_("Tile source"),
 			_("The tile source we display"),
 			TILESOURCE_TYPE,
+			G_PARAM_READWRITE));
+
+	g_object_class_install_property(gobject_class, PROP_IIMAGE,
+		g_param_spec_object("iimage",
+			_("iImage"),
+			_("The model we represent"),
+			IIMAGE_TYPE,
 			G_PARAM_READWRITE));
 
 	g_object_class_install_property(gobject_class, PROP_BACKGROUND,
@@ -1054,10 +1565,13 @@ imageui_class_init(ImageuiClass *class)
 		g_cclosure_marshal_VOID__VOID,
 		G_TYPE_NONE, 0);
 
+	for (int i = 0; i < REGIONVIEW_RESIZE_LAST; i++)
+		imageui_cursors[i] =
+			gdk_cursor_new_from_name(imageui_cursor_names[i], NULL);
 }
 
 Imageui *
-imageui_new(Tilesource *tilesource)
+imageui_new(Tilesource *tilesource, iImage *iimage)
 {
 	Imageui *imageui;
 
@@ -1067,6 +1581,7 @@ imageui_new(Tilesource *tilesource)
 
 	imageui = g_object_new(IMAGEUI_TYPE,
 		"tilesource", tilesource,
+		"iimage", iimage,
 		NULL);
 
 	return imageui;
@@ -1075,7 +1590,7 @@ imageui_new(Tilesource *tilesource)
 Imageui *
 imageui_duplicate(Tilesource *tilesource, Imageui *old_imageui)
 {
-	Imageui *new_imageui = imageui_new(tilesource);
+	Imageui *new_imageui = imageui_new(tilesource, old_imageui->iimage);
 
 	/* We want to copy position and zoom, so no bestfit.
 	 */

@@ -141,6 +141,15 @@
               </object>
             </child>
 
+	    <!-- handy for debugging menu actions
+            <child>
+              <object class="GtkButton">
+                <property name="label">Test</property>
+		<signal name="clicked" handler="displaybar_test_clicked"/>
+              </object>
+            </child>
+              -->
+
           </object>
         </child>
 

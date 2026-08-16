@@ -5,7 +5,7 @@
     <section>
       <attribute name="display-hint">horizontal-buttons</attribute>
       <item>
-        <attribute name="label">Replace image</attribute>
+        <attribute name="label">Open image</attribute>
         <attribute name="action">win.replace</attribute>
         <attribute name="verb-icon">document-open-symbolic</attribute>
       </item>
@@ -42,6 +42,10 @@
     </section>
 
     <section>
+      <item>
+        <attribute name='label' translatable='yes'>New window</attribute>
+        <attribute name='action'>app.new</attribute>
+      </item>
       <item>
         <attribute name='label' translatable='yes'>Next page</attribute>
         <attribute name='action'>win.next</attribute>
@@ -115,31 +119,11 @@
         <attribute name='action'>win.close</attribute>
       </item>
     </section>
-  </menu>
-
-  <menu id="imagewindow-region-menu">
-    <section>
-      <item>
-        <attribute name='label' translatable='yes'>Duplicate</attribute>
-        <attribute name="action">win.region-duplicate</attribute>
-      </item>
-      <item>
-        <attribute name='label' translatable='yes'>Reset</attribute>
-        <attribute name="action">win.region-reset</attribute>
-      </item>
-    </section>
 
     <section>
       <item>
-        <attribute name='label' translatable='yes'>Save as ...</attribute>
-        <attribute name="action">win.region-saveas</attribute>
-      </item>
-    </section>
-
-    <section>
-      <item>
-        <attribute name='label' translatable='yes'>Delete</attribute>
-        <attribute name="action">win.region-delete</attribute>
+        <attribute name='label' translatable='yes'>About vipsdisp</attribute>
+        <attribute name='action'>app.about</attribute>
       </item>
     </section>
   </menu>
@@ -156,7 +140,7 @@
           <object class="GtkButton">
             <property name="icon-name">document-open-symbolic</property>
             <property name="action-name">win.replace</property>
-            <property name="tooltip-text">Replace image</property>
+            <property name="tooltip-text">Open image</property>
           </object>
         </child>
 
@@ -223,6 +207,25 @@
         <property name="orientation">vertical</property>
 
         <child>
+          <object class="GtkActionBar" id="progress_bar">
+            <property name="revealed">false</property>
+
+            <child type="center">
+              <object class="GtkProgressBar" id="progress">
+                <property name="hexpand">true</property>
+                <property name="show-text">true</property>
+              </object>
+            </child>
+
+            <child type="end">
+              <object class="GtkButton" id="progress_cancel">
+                <property name="label">Cancel</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <child>
           <object class="GtkActionBar" id="error_bar">
             <property name="revealed">false</property>
 
@@ -278,12 +281,6 @@
             <child>
               <object class="GtkPopoverMenu" id="right_click_menu">
                 <property name="menu-model">imagewindow-menu</property>
-              </object>
-            </child>
-
-            <child>
-              <object class="GtkPopoverMenu" id="region_menu">
-                <property name="menu-model">imagewindow-region-menu</property>
               </object>
             </child>
 

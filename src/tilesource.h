@@ -277,8 +277,10 @@ GType tilesource_get_type(void);
 Tilesource *tilesource_new_from_file(const char *filename);
 Tilesource *tilesource_new_from_image(VipsImage *image);
 Tilesource *tilesource_new_from_imageinfo(Imageinfo *ii);
+#ifdef NIP4
 Tilesource *tilesource_new_from_iimage(iImage *iimage, int priority);
 gboolean tilesource_has_imageinfo(Tilesource *tilesource, Imageinfo *ii);
+#endif /*NIP4*/
 
 void tilesource_background_load(Tilesource *tilesource);
 

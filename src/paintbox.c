@@ -27,7 +27,7 @@
 
 */
 
-#include "nip4.h"
+#include "package.h"
 
 /*
 #define DEBUG_VERBOSE
@@ -431,6 +431,7 @@ paintbox_drag_update(Imageui *imageui,
 	return handled;
 }
 
+#ifdef NIP4
 static void
 paintbox_update_model(Paintbox *paintbox)
 {
@@ -455,6 +456,7 @@ paintbox_update_model(Paintbox *paintbox)
 	(void) expr_dirty(row->expr, link_serial_new());
 	symbol_recalculate_all();
 }
+#endif /*NIP4*/
 
 static gboolean
 paintbox_drag_end(Imageui *imageui,
@@ -542,7 +544,10 @@ paintbox_drag_end(Imageui *imageui,
 		handled = TRUE;
 		paintbox_rubber_clear(paintbox);
 		paintbox->state = PAINTBOX_STATE_WAIT;
+
+#ifdef NIP4
 		paintbox_update_model(paintbox);
+#endif /*NIP4*/
 	}
 
 	return handled;

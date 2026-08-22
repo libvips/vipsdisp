@@ -32,8 +32,8 @@
 
 #define PROPERTIES_TYPE (properties_get_type())
 
-G_DECLARE_FINAL_TYPE(Properties, properties, NIP4, PROPERTIES, GtkWidget);
+G_DECLARE_FINAL_TYPE(Properties, properties, APP, PROPERTIES, GtkWidget);
 
-#define PROPERTIES NIP4_PROPERTIES
+#define PROPERTIES APP_PROPERTIES
 
 #endif /* __PROPERTIES_H */

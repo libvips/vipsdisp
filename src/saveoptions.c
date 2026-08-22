@@ -31,7 +31,7 @@
 #define DEBUG
  */
 
-#include "nip4.h"
+#include "package.h"
 
 struct _SaveOptions {
 	GtkApplicationWindow parent_instance;
@@ -113,10 +113,12 @@ save_options_eval(VipsImage *image,
 	char str[256];
 	VipsBuf buf = VIPS_BUF_STATIC(str);
 
+#ifdef DEBUG
 	printf("save_options_eval: %d%%, last = %g, current = %g\n",
 		progress->percent,
 		options->last_progress_time,
 		g_timer_elapsed(options->progress_timer, NULL));
+#endif /*DEBUG*/
 
 	/* We can be ^Q'd during load. This is NULLed in _dispose.
 	 */
@@ -131,7 +133,9 @@ save_options_eval(VipsImage *image,
 		return;
 	options->last_progress_time = time_now;
 
+#ifdef DEBUG
 	printf("save_options_eval: updating UI ..\n");
+#endif /*DEBUG*/
 
 	vips_buf_appendf(&buf, "%d%% complete, %d seconds to go",
 		progress->percent, progress->eta);
@@ -519,7 +523,10 @@ save_options_add_option(SaveOptions *options, GParamSpec *pspec, int *row)
 		}
 	}
 	else {
+#ifdef DEBUG
 		printf("Unknown type for property \"%s\"\n", name);
+#endif /*DEBUG*/
+
 		return;
 	}
 
@@ -583,10 +590,8 @@ save_options_new(GtkWindow *parent_window,
 	VipsImage *image, const char *filename)
 {
 	const char *saver;
-	if (!(saver = vips_foreign_find_save(filename))) {
-		error_vips_all();
+	if (!(saver = vips_foreign_find_save(filename)))
 		return NULL;
-	}
 
 	g_autoptr(SaveOptions) options = g_object_new(SAVE_OPTIONS_TYPE,
 		"transient-for", parent_window,

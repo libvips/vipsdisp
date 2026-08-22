@@ -26,7 +26,7 @@
 #define DEBUG_FATAL
  */
 
-#include "nip4.h"
+#include "package.h"
 
 /* General stuff.
  */
@@ -36,7 +36,7 @@ Symbol *main_symbol_root = NULL;            /* Root of symtable */
 Watchgroup *main_watchgroup = NULL;         /* All of the watches */
 Imageinfogroup *main_imageinfogroup = NULL; /* All of the images */
 
-/* Other parts of nip4 need these to link, but we don't use them here ... see
+/* Other objects need these to link, but we don't use them here ... see
  * main-batch.c
  */
 gboolean main_option_i18n = FALSE;
@@ -77,12 +77,12 @@ get_prefix(void)
         prefix = vips_guess_prefix(main_argv0, "VIPSHOME");
 
         if (!prefix ||
-            !existsf("%s/share/nip4", prefix)) {
+            !existsf("%s/share/" PACKAGE, prefix)) {
             /* The libvips guesser failed to find our install area ... try
              * searching the path for our exe name.
              *
              * This can happen with homebrew, for example, where the
-             * compile-time libvips prefix will not match the nip4 prefix.
+             * compile-time libvips prefix will not match the package prefix.
              */
             GSList *path = path_parse(g_getenv("PATH"));
             argv0_path =
@@ -98,7 +98,7 @@ get_prefix(void)
         }
 
         if (!prefix ||
-            !existsf("%s/share/nip4", prefix)) {
+            !existsf("%s/share/" PACKAGE, prefix)) {
             error_top(_("Unable to find install area"));
             error_vips();
 

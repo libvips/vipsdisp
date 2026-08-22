@@ -33,7 +33,7 @@
 #define DEBUG
  */
 
-#include "nip4.h"
+#include "package.h"
 
 /* Use this threadpool to do background loads of images.
  */
@@ -807,7 +807,10 @@ tilesource_update_rgb(Tilesource *tilesource)
 		VipsImage *rgb;
 
 		if (!(rgb = tilesource_rgb(tilesource, tilesource->image))) {
+#ifdef DEBUG
 			printf("tilesource_rgb failed: %s\n", vips_error_buffer());
+#endif /*DEBUG*/
+
 			return -1;
 		}
 		VIPS_UNREF(tilesource->rgb);
@@ -841,7 +844,10 @@ tilesource_update_image(Tilesource *tilesource)
 		return 0;
 
 	if (!(image = tilesource_image(tilesource, &mask, tilesource->current_z))) {
+#ifdef DEBUG
 		printf("tilesource_update_image: build failed\n");
+#endif /*DEBUG*/
+
 		return -1;
 	}
 
@@ -1569,6 +1575,7 @@ tilesource_new_from_image(VipsImage *image)
 	return g_steal_pointer(&tilesource);
 }
 
+#ifdef NIP4
 // use the file interface if we can, so we get fast zooming
 Tilesource *
 tilesource_new_from_imageinfo(Imageinfo *ii)
@@ -1616,6 +1623,7 @@ tilesource_has_imageinfo(Tilesource *tilesource, Imageinfo *ii)
 	else
 		return ii->image == tilesource->image;
 }
+#endif /*NIP4*/
 
 /* Detect a TIFF pyramid made of subifds following a roughly /2 shrink.
  */
@@ -2010,8 +2018,8 @@ tilesource_request_tile(Tilesource *tilesource, Tile *tile)
 #endif /*DEBUG_VERBOSE*/
 
 	if (tilesource->load_error) {
-		error_top(_("Unable to load image"));
-		error_sub("%s", tilesource->load_message);
+		vips_error("Fetch tile", _("Unable to load image: %s"),
+			tilesource->load_message);
 		return -1;
 	}
 
@@ -2025,8 +2033,7 @@ tilesource_request_tile(Tilesource *tilesource, Tile *tile)
 
 	/* Clip the tile against the size of this level.
 	 */
-	VipsRect image = { 0, 0,
-		tilesource->image->Xsize, tilesource->image->Ysize };
+	VipsRect image = {0, 0, tilesource->image->Xsize, tilesource->image->Ysize};
 	VipsRect hit;
 	vips_rect_intersectrect(&tile->bounds, &image, &hit);
 
@@ -2133,7 +2140,6 @@ tilesource_set_synchronous(Tilesource *tilesource, gboolean synchronous)
 	if (tilesource->synchronous != synchronous) {
 #ifdef DEBUG
 		printf("tilesource_set_synchronous: %d", synchronous);
-		iobject_print(IOBJECT(tilesource));
 #endif /*DEBUG*/
 
 		tilesource->synchronous = synchronous;

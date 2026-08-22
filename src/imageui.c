@@ -31,7 +31,7 @@
 #define DEBUG
  */
 
-#include "nip4.h"
+#include "package.h"
 
 /*
 #define DEBUG_VERBOSE
@@ -46,10 +46,6 @@
  */
 #define ZOOM_DURATION (0.5)
 
-/* Snap if closer than this.
- */
-const int imageui_snap_threshold = 10;
-
 /* Drag state machine.
  */
 typedef enum {
@@ -62,18 +58,22 @@ struct _Imageui {
 
 	Tilesource *tilesource;
 
+#ifdef NIP4
 	Imageuiregion *imageuiregion;
+#endif /*NIP4*/
 
 	/* The zoom factor that was used at load time, handy for scaling SVGs.
 	 */
 	double zoom_load;
 
+#ifdef NIP4
 	/* The iimage we represent ... we add/remove ourselves from iimage->views
 	 * so that iregiongroupview.c can find us.
 	 *
 	 * notaref
 	 */
 	iImage *iimage;
+#endif /*NIP4*/
 
 	/* Last known mouse position, in gtk coordinates. We keep these in gtk
 	 * cods so we don't need to update them on pan / zoom.
@@ -188,6 +188,7 @@ enum {
 
 static guint imageui_signals[SIG_LAST] = { 0 };
 
+#ifdef NIP4
 // filled in _class_init()
 static GdkCursor *imageui_cursors[REGIONVIEW_RESIZE_LAST] = { NULL };
 
@@ -252,12 +253,6 @@ imageui_set_iimage(Imageui *imageui, iImage *iimage)
 }
 
 void
-imageui_queue_draw(Imageui *imageui)
-{
-	gtk_widget_queue_draw(GTK_WIDGET(imageui->imagedisplay));
-}
-
-void
 imageui_add_regionview(Imageui *imageui, Regionview *regionview)
 {
 	imageuiregion_add_regionview(imageui->imageuiregion, regionview);
@@ -269,6 +264,31 @@ imageui_remove_regionview(Imageui *imageui, Regionview *regionview)
 	imageuiregion_remove_regionview(imageui->imageuiregion, regionview);
 }
 
+gboolean
+imageui_snap_point(Imageui *imageui, int x, int y, int *sx, int *sy)
+{
+	return imageuiregion_snap_point(imageui->imageuiregion, x, y, sx, sy);
+}
+
+gboolean
+imageui_snap_rect(Imageui *imageui, VipsRect *in, VipsRect *out)
+{
+	return imageuiregion_snap_rect(imageui->imageuiregion, in, out);
+}
+
+Regionview *
+imageui_pick_regionview(Imageui *imageui, int x, int y)
+{
+	return imageuiregion_pick_regionview(imageui->imageuiregion, x, y);
+}
+#endif /*NIP4*/
+
+void
+imageui_queue_draw(Imageui *imageui)
+{
+	gtk_widget_queue_draw(GTK_WIDGET(imageui->imagedisplay));
+}
+
 static void
 imageui_dispose(GObject *object)
 {
@@ -278,8 +298,11 @@ imageui_dispose(GObject *object)
 	printf("imageui_dispose:\n");
 #endif /*DEBUG*/
 
+#ifdef NIP4
 	imageui_set_iimage(imageui, NULL);
 	VIPS_UNREF(imageui->imageuiregion);
+#endif /*NIP4*/
+
 	VIPS_FREEF(gtk_widget_unparent, imageui->scrolled_window);
 
 	G_OBJECT_CLASS(imageui_parent_class)->dispose(object);
@@ -425,9 +448,11 @@ imageui_property_name(guint prop_id)
 		return "TILESOURCE";
 		break;
 
+#ifdef NIP4
 	case PROP_IIMAGE:
 		return "IIMAGE";
 		break;
+#endif /*NIP4*/
 
 	case PROP_BACKGROUND:
 		return "BACKGROUND";
@@ -483,9 +508,11 @@ imageui_set_property(GObject *object,
 
 		break;
 
+#ifdef NIP4
 	case PROP_IIMAGE:
 		imageui_set_iimage(imageui, IIMAGE(g_value_get_object(value)));
 		break;
+#endif /*NIP4*/
 
 	case PROP_BACKGROUND:
 		g_object_set_property(G_OBJECT(imageui->imagedisplay),
@@ -539,9 +566,11 @@ imageui_get_property(GObject *object,
 		g_value_set_object(value, imageui->tilesource);
 		break;
 
+#ifdef NIP4
 	case PROP_IIMAGE:
 		g_value_set_object(value, imageui->iimage);
 		break;
+#endif /*NIP4*/
 
 	case PROP_BACKGROUND:
 		g_object_get_property(G_OBJECT(imageui->imagedisplay),
@@ -604,11 +633,13 @@ imageui_get_tilesource(Imageui *imageui)
 	return imageui ? imageui->tilesource : NULL;
 }
 
+#ifdef NIP4
 iImage *
 imageui_get_iimage(Imageui *imageui)
 {
 	return imageui->iimage;
 }
+#endif /*NIP4*/
 
 GtkWidget *
 imageui_get_imagedisplay(Imageui *imageui)
@@ -958,18 +989,6 @@ imageui_get_mouse_position(Imageui *imageui,
 		imageui->last_x_gtk, imageui->last_y_gtk, x_image, y_image);
 }
 
-gboolean
-imageui_snap_point(Imageui *imageui, int x, int y, int *sx, int *sy)
-{
-	return imageuiregion_snap_point(imageui->imageuiregion, x, y, sx, sy);
-}
-
-gboolean
-imageui_snap_rect(Imageui *imageui, VipsRect *in, VipsRect *out)
-{
-	return imageuiregion_snap_rect(imageui->imageuiregion, in, out);
-}
-
 static struct {
 	int keyval;
 	double zoom;
@@ -1162,12 +1181,6 @@ imageui_key_released_real(Imageui *imageui,
 	return handled;
 }
 
-Regionview *
-imageui_pick_regionview(Imageui *imageui, int x, int y)
-{
-	return NULL;
-}
-
 static gboolean
 imageui_drag_begin_real(Imageui *imageui,
 	gdouble start_x, gdouble start_y, GtkGestureDrag *drag, gpointer user_data)
@@ -1327,8 +1340,10 @@ imageui_init(Imageui *imageui)
 	// read the gtk animation setting preference
 	imageui->should_animate = widget_should_animate(GTK_WIDGET(imageui));
 
+#ifdef NIP4
 	// attach the region handler
 	imageui->imageuiregion = imageuiregion_new(imageui);
+#endif /*NIP4*/
 }
 
 static gboolean
@@ -1389,12 +1404,14 @@ imageui_class_init(ImageuiClass *class)
 			TILESOURCE_TYPE,
 			G_PARAM_READWRITE));
 
+#ifdef NIP4
 	g_object_class_install_property(gobject_class, PROP_IIMAGE,
 		g_param_spec_object("iimage",
 			_("iImage"),
 			_("The model we represent"),
 			IIMAGE_TYPE,
 			G_PARAM_READWRITE));
+#endif /*NIP4*/
 
 	g_object_class_install_property(gobject_class, PROP_BACKGROUND,
 		g_param_spec_int("background",
@@ -1523,6 +1540,7 @@ imageui_class_init(ImageuiClass *class)
 			gdk_cursor_new_from_name(imageui_cursor_names[i], NULL);
 }
 
+#ifdef NIP4
 Imageui *
 imageui_new(Tilesource *tilesource, iImage *iimage)
 {
@@ -1539,11 +1557,32 @@ imageui_new(Tilesource *tilesource, iImage *iimage)
 
 	return imageui;
 }
+#else /*!NIP4*/
+Imageui *
+imageui_new(Tilesource *tilesource)
+{
+	Imageui *imageui;
+
+#ifdef DEBUG
+	printf("imageui_new:\n");
+#endif /*DEBUG*/
+
+	imageui = g_object_new(IMAGEUI_TYPE,
+		"tilesource", tilesource,
+		NULL);
+
+	return imageui;
+}
+#endif /*NIP4*/
 
 Imageui *
 imageui_duplicate(Tilesource *tilesource, Imageui *old_imageui)
 {
+#ifdef NIP4
 	Imageui *new_imageui = imageui_new(tilesource, old_imageui->iimage);
+#else /*!NIP4*/
+	Imageui *new_imageui = imageui_new(tilesource);
+#endif /*NIP4*/
 
 	/* We want to copy position and zoom, so no bestfit.
 	 */
@@ -1635,15 +1674,9 @@ imageui_make_paintable(Imageui *imageui)
 			printf("imageui_make_paintable:\n");
 #endif /*DEBUG*/
 
-			progress_begin();
-
 			VipsImage *memory;
-			if (!(memory = vips_image_copy_memory(image))) {
-				progress_end();
+			if (!(memory = vips_image_copy_memory(image)))
 				return FALSE;
-			}
-
-			progress_end();
 
 			Tilesource *new_tilesource;
 			if (!(new_tilesource = tilesource_new_from_image(memory))) {

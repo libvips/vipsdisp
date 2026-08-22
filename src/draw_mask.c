@@ -1,6 +1,6 @@
 /* Draw a mask on an image.
  *
- * Copied into nip4 to get a direct draw path,
+ * Copied from libvips to get a direct draw path,
  */
 
 #include <stdio.h>

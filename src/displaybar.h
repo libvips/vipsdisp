@@ -48,7 +48,7 @@ typedef struct _ViewSettings {
 
 #define DISPLAYBAR_TYPE (displaybar_get_type())
 
-G_DECLARE_FINAL_TYPE(Displaybar, displaybar, NIP4, DISPLAYBAR, GtkWidget)
+G_DECLARE_FINAL_TYPE(Displaybar, displaybar, APP, DISPLAYBAR, GtkWidget)
 
 #define DISPLAYBAR(obj) \
 	(G_TYPE_CHECK_INSTANCE_CAST((obj), DISPLAYBAR_TYPE, Displaybar))

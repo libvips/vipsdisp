@@ -49,7 +49,9 @@ config_h = configuration_data()
 set_defines = [
   ['APPLICATION_ID', application_id],
   ['PACKAGE', meson.project_name()],
+  ['PACKAGE_UPPER', meson.project_name().to_upper()],
   ['VERSION', meson.project_version()],
+  ['NIP4', '1'],
 ]
 
 foreach define: set_defines
@@ -101,8 +103,8 @@ nip4_deps += declare_dependency(
   compile_args: '-DHAVE_CONFIG_H',
 )
 
-# need vips_thread_execute()
-nip4_deps += dependency('vips', version: '>=8.18')
+# need draw_line with the "draw-point" option
+nip4_deps += dependency('vips', version: '>=8.19')
 nip4_deps += gtk_dep
 nip4_deps += dependency('gsl')
 nip4_deps += dependency('libxml-2.0')

@@ -43,7 +43,7 @@
 	(G_TYPE_INSTANCE_GET_CLASS((obj), IMAGEWINDOW_TYPE, ImagewindowClass))
 
 G_DECLARE_FINAL_TYPE(Imagewindow, imagewindow,
-	NIP4, IMAGEWINDOW, GtkApplicationWindow)
+	APP, IMAGEWINDOW, GtkApplicationWindow)
 
 void imagewindow_error(Imagewindow *win);
 
@@ -56,8 +56,10 @@ Tilesource *imagewindow_get_tilesource(Imagewindow *win);
 GtkWidget *imagewindow_get_main_box(Imagewindow *win);
 GSettings *imagewindow_get_settings(Imagewindow *win);
 Imageui *imagewindow_get_imageui(Imagewindow *win);
-iImage *imagewindow_get_iimage(Imagewindow *win);
 
+#ifdef NIP4
+iImage *imagewindow_get_iimage(Imagewindow *win);
 void imagewindow_set_iimage(Imagewindow *win, iImage *iimage);
+#endif /*NIP4*/
 
 #endif /* __IMAGEWINDOW_H */

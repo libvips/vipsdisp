@@ -2,36 +2,10 @@
  */
 
 /*
-
-	Copyright (C) 1991-2003 The National Gallery
-
-	This program is free software; you can redistribute it and/or modify
-	it under the terms of the GNU General Public License as published by
-	the Free Software Foundation; either version 2 of the License, or
-	(at your option) any later version.
-
-	This program is distributed in the hope that it will be useful,
-	but WITHOUT ANY WARRANTY; without even the implied warranty of
-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-	GNU General Public License for more details.
-
-	You should have received a copy of the GNU General Public License along
-	with this program; if not, write to the Free Software Foundation, Inc.,
-	51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
-
- */
-
-/*
-
-	These files are distributed with VIPS - http://www.vips.ecs.soton.ac.uk
-
-*/
-
-/*
 #define DEBUG
  */
 
-#include "nip4.h"
+#include "package.h"
 
 /* We have a number of active imageui (open images) and look them up via the
  * tilesource filename or image pointer.
@@ -57,12 +31,14 @@ typedef struct _Active {
 struct _Imagewindow {
 	GtkApplicationWindow parent;
 
+#ifdef NIP4
 	/* A ref to the iimage we came from ... this is what we update on open
 	 * etc.
 	 */
 	iImage *iimage;
 	guint iimage_changed_sid;
 	guint iimage_destroy_sid;
+#endif /*NIP4*/
 
 	/* The imageui we are currently displaying, or NULL. This is not
 	 * a reference --- the real refs are in @stack.
@@ -559,12 +535,16 @@ imagewindow_imageui_set_visible(Imagewindow *win, Imageui *imageui)
 	 */
 	const char *title;
 	title = tilesource_get_path(new_tilesource);
+
+#ifdef NIP4
 	if (!title &&
 		HEAPMODEL(win->iimage)->row) {
 		vips_buf_rewind(&buf);
 		row_qualified_name(HEAPMODEL(win->iimage)->row, &buf);
 		title = vips_buf_all(&buf);
 	}
+#endif /*NIP4*/
+
 	if (!title)
 		title = "Untitled";
 
@@ -650,12 +630,14 @@ imagewindow_dispose(GObject *object)
 	printf("imagewindow_dispose:\n");
 #endif /*DEBUG*/
 
+#ifdef NIP4
 	FREESID(win->iimage_changed_sid, win->iimage);
 	FREESID(win->iimage_destroy_sid, win->iimage);
-	VIPS_FREEF(gtk_widget_unparent, win->right_click_menu);
-
 	iimage_update_view_settings(win->iimage,
 		displaybar_get_view_settings(DISPLAYBAR(win->displaybar)));
+#endif /*NIP4*/
+
+	VIPS_FREEF(gtk_widget_unparent, win->right_click_menu);
 
 	while (win->active) {
 		Active *active = (Active *) win->active->data;
@@ -965,8 +947,11 @@ imagewindow_next_image(GSimpleAction *action,
 	if (win->n_files > 0) {
 		win->transition = GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT;
 		win->current_file = (win->current_file + 1) % win->n_files;
+
+#ifdef NIP4
 		iimage_replace(win->iimage, win->files[win->current_file]);
 		symbol_recalculate_all();
+#endif /*NIP4*/
 	}
 }
 
@@ -985,8 +970,11 @@ imagewindow_prev_image(GSimpleAction *action,
 		win->transition = GTK_STACK_TRANSITION_TYPE_SLIDE_RIGHT;
 		win->current_file =
 			(win->current_file + win->n_files - 1) % win->n_files;
+
+#ifdef NIP4
 		iimage_replace(win->iimage, win->files[win->current_file]);
 		symbol_recalculate_all();
+#endif /*NIP4*/
 	}
 }
 
@@ -1098,7 +1086,7 @@ imagewindow_mode(GSimpleAction *action,
 	Tilesource *tilesource = imagewindow_get_tilesource(win);
 	const gchar *str = g_variant_get_string(state, NULL);
 	TilesourceMode mode =
-		vips_enum_from_nick("nip4", TILESOURCE_MODE_TYPE, str);
+		vips_enum_from_nick(PACKAGE, TILESOURCE_MODE_TYPE, str);
 
 	if (tilesource)
 		g_object_set(tilesource,
@@ -1115,7 +1103,7 @@ imagewindow_background(GSimpleAction *action,
 	Imagewindow *win = IMAGEWINDOW(user_data);
 	const gchar *str = g_variant_get_string(state, NULL);
 	TilecacheBackground background =
-		vips_enum_from_nick("vipsdisp", TILECACHE_BACKGROUND_TYPE, str);
+		vips_enum_from_nick(PACKAGE, TILECACHE_BACKGROUND_TYPE, str);
 
 	if (win->imageui)
 		g_object_set(win->imageui,
@@ -1152,6 +1140,7 @@ imagewindow_properties(GSimpleAction *action,
 	g_simple_action_set_state(action, state);
 }
 
+#ifdef NIP4
 static void
 imagewindow_region_action(GSimpleAction *action,
 	GVariant *state, gpointer user_data)
@@ -1190,6 +1179,7 @@ imagewindow_region_action(GSimpleAction *action,
 		win->action_view = NULL;
 	}
 }
+#endif /*NIP4*/
 
 static GActionEntry imagewindow_entries[] = {
 	{ "copy", imagewindow_copy_action },
@@ -1227,11 +1217,12 @@ static GActionEntry imagewindow_entries[] = {
 
 	{ "reset", imagewindow_reset },
 
+#ifdef NIP4
 	{ "region-duplicate", imagewindow_region_action },
 	{ "region-reset", imagewindow_region_action },
 	{ "region-saveas", imagewindow_region_action },
 	{ "region-delete", imagewindow_region_action },
-
+#endif /*NIP4*/
 };
 
 static void
@@ -1347,9 +1338,11 @@ static void
 imagewindow_pressed(GtkGestureClick *gesture,
 	guint n_press, double x, double y, Imagewindow *win)
 {
+	GtkWidget *menu;
+
+#ifdef NIP4
 	Imageui *imageui = win->imageui;
 
-	GtkWidget *menu;
 	Regionview *regionview;
 
 	menu = NULL;
@@ -1362,6 +1355,9 @@ imagewindow_pressed(GtkGestureClick *gesture,
 		menu = win->right_click_menu;
 		win->action_view = NULL;
 	}
+#else
+	menu = win->right_click_menu;
+#endif /*NIP4*/
 
 	gtk_popover_set_pointing_to(GTK_POPOVER(menu),
 		&(const GdkRectangle){ x, y, 1, 1 });
@@ -1448,6 +1444,7 @@ imagewindow_get_settings(Imagewindow *win)
 	return win->settings;
 }
 
+#ifdef NIP4
 static void
 imagewindow_iimage_changed(iImage *iimage, Imagewindow *win)
 {
@@ -1560,3 +1557,4 @@ imagewindow_set_iimage(Imagewindow *win, iImage *iimage)
 	displaybar_set_view_settings(DISPLAYBAR(win->displaybar),
 		&iimage->view_settings);
 }
+#endif /*NIP4*/

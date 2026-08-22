@@ -23,3 +23,9 @@
 #   BOOL        deprecated alias for BOOLEAN
 
 VOID: POINTER, INT
+
+# motion events
+BOOLEAN: DOUBLE, DOUBLE, OBJECT
+
+# key_pressed / _released
+BOOLEAN: INT, INT, INT, OBJECT

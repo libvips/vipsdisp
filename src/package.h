@@ -38,22 +38,29 @@
 	} \
 	G_STMT_END
 
+int draw_mask(VipsImage *image, VipsPel *ink, VipsImage *mask, int x, int y);
+
+// various forward typdefs
+
+typedef struct _Imageui Imageui;
+
+#include "tile.h"
+#include "app.h"
 #include "enumtypes.h"
 #include "gtkutil.h"
-#include "ientry.h"
-#include "tslider.h"
-#include "app.h"
-#include "vipsdispmarshal.h"
-#include "tile.h"
 #include "tilesource.h"
 #include "tilecache.h"
 #include "imagedisplay.h"
+#include "ientry.h"
+#include "tslider.h"
 #include "imageui.h"
 #include "imagewindow.h"
 #include "infobar.h"
+#include "paintbox.h"
 #include "displaybar.h"
 #include "saveoptions.h"
 #include "properties.h"
 #include "fuzzy.h"
+#include "vipsdispmarshal.h"
 
 #endif /*__PACKAGE_H*/

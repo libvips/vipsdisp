@@ -40,6 +40,7 @@ void imagedisplay_image_to_gtk(Imagedisplay *imagedisplay,
 	double x_image, double y_image, double *x_gtk, double *y_gtk);
 void imagedisplay_gtk_to_image(Imagedisplay *imagedisplay,
 	double x_gtk, double y_gtk, double *x_image, double *y_image);
+double imagedisplay_get_scale(Imagedisplay *imagedisplay);
 
 Imagedisplay *imagedisplay_new(Tilesource *tilesource);
 

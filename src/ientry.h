@@ -1,4 +1,4 @@
-/* a text extry widget with OK, cancel and modified
+/* a text entry widget with OK, cancel and modified
  */
 
 /*

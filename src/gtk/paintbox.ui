@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <template class="Paintbox" parent="GtkWidget">
+    <child>
+      <object class="GtkActionBar" id="action_bar">
+        <property name="revealed">false</property>
+
+        <child type="start">
+	  <object class="GtkBox">
+            <child>
+              <object class="GtkButton" id="undo">
+                <property name="icon-name">edit-undo-symbolic</property>
+		<property name="tooltip-text">Undo paint</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkButton" id="redo">
+                <property name="icon-name">edit-redo-symbolic</property>
+		<property name="tooltip-text">Redo paint</property>
+              </object>
+            </child>
+          </object>
+        </child>
+
+        <child type="start">
+	  <object class="GtkBox">
+
+            <child>
+              <object class="GtkToggleButton" id="pointer">
+                <property name="icon-name">pointer-symbolic</property>
+                <property name="active">true</property>
+		<property name="tooltip-text">Pointer mode</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkToggleButton" id="brush">
+                <property name="icon-name">brush-symbolic</property>
+                <property name="group">pointer</property>
+		<property name="tooltip-text">Paint with a brush</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkToggleButton" id="line">
+                <property name="icon-name">pencil-symbolic</property>
+                <property name="group">pointer</property>
+		<property name="tooltip-text">Draw straight lines</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkToggleButton" id="rect">
+                <property name="icon-name">rectangle-symbolic</property>
+                <property name="group">pointer</property>
+		<property name="tooltip-text">Draw rectangles</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkToggleButton" id="circle">
+                <property name="icon-name">circle-symbolic</property>
+                <property name="group">pointer</property>
+		<property name="tooltip-text">Draw circles</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkToggleButton" id="smudge">
+                <property name="icon-name">smudge-symbolic</property>
+                <property name="group">pointer</property>
+		<property name="tooltip-text">Smudge</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkToggleButton" id="flood_until">
+                <property name="icon-name">flood-symbolic</property>
+                <property name="group">pointer</property>
+		<property name="tooltip-text">Flood until equal to ink</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkToggleButton" id="flood_while">
+                <property name="icon-name">flood-symbolic</property>
+                <property name="group">pointer</property>
+		<property name="tooltip-text">Flood while equal to start pixel</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkToggleButton" id="text">
+                <property name="icon-name">text-symbolic</property>
+                <property name="group">pointer</property>
+		<property name="tooltip-text">Draw text</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkToggleButton" id="dropper">
+                <property name="icon-name">dropper-symbolic</property>
+                <property name="group">pointer</property>
+		<property name="tooltip-text">Ink dropper</property>
+		<signal name="toggled" handler="paintbox_toggled"/>
+              </object>
+            </child>
+
+          </object>
+        </child>
+
+        <child type="start">
+	  <object class="GtkBox">
+	    <property name="hexpand">true</property>
+
+            <child>
+              <object class="GtkColorDialogButton" id="ink">
+		<property name="rgba">white</property>
+                <property name="dialog">
+                  <object class="GtkColorDialog">
+                    <property name="modal">1</property>
+                    <property name="with-alpha">0</property>
+                  </object>
+                </property>
+		<property name="tooltip-text">Ink colour</property>
+              </object>
+            </child>
+
+            <child>
+	      <object class="GtkCheckButton" id="fill">
+                <property name="label">Fill</property>
+		<property name="tooltip-text">Fill shape</property>
+              </object>
+            </child>
+
+            <child>
+	      <object class="Tslider" id="width">
+		<property name="tooltip-text">Brush width</property>
+              </object>
+            </child>
+
+            <child>
+              <object class="GtkFontDialogButton" id="font">
+		<property name="font-desc">Sans 24</property>
+                <property name="dialog">
+                  <object class="GtkFontDialog">
+                    <property name="modal">1</property>
+                  </object>
+                </property>
+		<property name="tooltip-text">Font to draw text with</property>
+              </object>
+            </child>
+
+            <child>
+	      <object class="GtkEntry" id="text_string">
+                <property name="hexpand">true</property>
+		<property name="tooltip-text">Text to draw</property>
+              </object>
+            </child>
+
+          </object>
+        </child>
+
+      </object>
+    </child>
+  </template>
+</interface>

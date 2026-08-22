@@ -63,6 +63,7 @@ enum {
 	SIG_POSTEVAL,
 	SIG_CHANGED,
 	SIG_TILES_CHANGED,
+	SIG_INVALIDATE_AREA,
 	SIG_COLLECT,
 	SIG_PAGE_CHANGED,
 	SIG_LOADED,
@@ -115,6 +116,12 @@ static void
 tilesource_collect(Tilesource *tilesource, VipsRect *dirty, int z)
 {
 	g_signal_emit(tilesource, tilesource_signals[SIG_COLLECT], 0, dirty, z);
+}
+
+static void
+tilesource_invalidate_area(Tilesource *tilesource, VipsRect *area)
+{
+	g_signal_emit(tilesource, tilesource_signals[SIG_INVALIDATE_AREA], 0, area);
 }
 
 static void
@@ -213,6 +220,7 @@ tilesource_open(Tilesource *tilesource, int level)
 
 	else if (vips_isprefix("webp", tilesource->loader) ||
 		vips_isprefix("jxl", tilesource->loader) ||
+		vips_isprefix("png", tilesource->loader) ||
 		vips_isprefix("gif", tilesource->loader)) {
 		/* These formats have pages all the same size and support page and n.
 		 */
@@ -247,16 +255,8 @@ tilesource_render_notify_idle(void *user_data)
 	/* Only bother fetching the updated tile if it's from our current
 	 * pipeline.
 	 */
-	if (update->image == tilesource->image) {
+	if (update->image == tilesource->image)
 		tilesource_collect(tilesource, &update->rect, update->z);
-
-		/* All operations which depend on this image need to be kicked out of
-		 * cache.
-		 *
-		 * Things like the getpoint() we run for the infobar.
-		 */
-		vips_image_invalidate_all(update->image);
-	}
 
 	/* Matches the g_new() in tilesource_render_notify().
 	 */
@@ -485,17 +485,17 @@ tilesource_image(Tilesource *tilesource, VipsImage **mask_out, int current_z)
 	}
 
 	if (current_z > 0) {
-        /* We may have already zoomed out a bit because we've loaded
-         * some layer other than the base one. Calculate the
-         * subsample as (current_width / required_width).
-         */
-        int width = VIPS_MAX(1, tilesource->image_width >> current_z);
-        int height = VIPS_MAX(1, tilesource->image_height >> current_z);
-        int xfac = VIPS_MAX(1, image->Xsize / width);
-        int yfac = VIPS_MAX(1, image->Ysize / height);
+		/* We may have already zoomed out a bit because we've loaded
+		 * some layer other than the base one. Calculate the
+		 * subsample as (current_width / required_width).
+		 */
+		int width = VIPS_MAX(1, tilesource->image_width >> current_z);
+		int height = VIPS_MAX(1, tilesource->image_height >> current_z);
+		int xfac = VIPS_MAX(1, image->Xsize / width);
+		int yfac = VIPS_MAX(1, image->Ysize / height);
 
-        if (vips_subsample(image, &x, xfac, yfac, NULL))
-            return NULL;
+		if (vips_subsample(image, &x, xfac, yfac, NULL))
+			return NULL;
 		VIPS_UNREF(image);
 		image = x;
 	}
@@ -1412,6 +1412,15 @@ tilesource_class_init(TilesourceClass *class)
 		G_TYPE_POINTER,
 		G_TYPE_INT);
 
+	tilesource_signals[SIG_INVALIDATE_AREA] = g_signal_new("invalidate-area",
+		G_TYPE_FROM_CLASS(class),
+		G_SIGNAL_RUN_LAST,
+		0,
+		NULL, NULL,
+		g_cclosure_marshal_VOID__POINTER,
+		G_TYPE_NONE, 1,
+		G_TYPE_POINTER);
+
 	tilesource_signals[SIG_PAGE_CHANGED] = g_signal_new("page-changed",
 		G_TYPE_FROM_CLASS(class),
 		G_SIGNAL_RUN_LAST,
@@ -1531,8 +1540,8 @@ tilesource_new_from_image(VipsImage *image)
 		return NULL;
 
 	tilesource->level_count = 1;
-	tilesource->level_width[0] = image->Xsize;;
-	tilesource->level_height[0] = image->Ysize;;
+	tilesource->level_width[0] = image->Xsize;
+	tilesource->level_height[0] = image->Ysize;
 
 	/* Always loaded.
 	 */
@@ -1948,8 +1957,8 @@ tilesource_new_from_file(const char *filename)
 	 */
 	if (!tilesource->level_count) {
 		tilesource->level_count = 1;
-		tilesource->level_width[0] = base->Xsize;;
-		tilesource->level_height[0] = base->Ysize;;
+		tilesource->level_width[0] = base->Xsize;
+		tilesource->level_height[0] = base->Ysize;
 	}
 
 	/* Default page geometry if we've not found any other way to set it.
@@ -2115,7 +2124,7 @@ tilesource_get_image(Tilesource *tilesource)
 VipsImage *
 tilesource_get_base_image(Tilesource *tilesource)
 {
-	return tilesource->base;
+	return tilesource ? tilesource->base : NULL;
 }
 
 void
@@ -2132,5 +2141,166 @@ tilesource_set_synchronous(Tilesource *tilesource, gboolean synchronous)
 		// need to rebuild everything, since the sink_screen is at the end of
 		// the first stage
 		tilesource_update_image(tilesource);
+	}
+}
+
+static void
+tilesource_draw_line_point(VipsImage *image, VipsPel *pink,
+	int x, int y, void *client)
+{
+	VipsImage *mask = VIPS_IMAGE(client);
+
+	draw_mask(image, pink, mask, x - mask->Xsize / 2, y - mask->Ysize / 2);
+}
+
+void
+tilesource_draw_line(Tilesource *tilesource,
+	double *ink, int n, VipsImage *mask,
+	int x0, int y0, int x1, int y1)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		vips_draw_line(image, ink, n, x0, y0, x1, y1,
+			"draw-point", tilesource_draw_line_point,
+			"client", mask,
+			NULL);
+
+		VipsRect dirty = {
+			.left = x0 - mask->Xsize / 2,
+			.top = y0 - mask->Ysize / 2,
+			.width = (x1 - x0) + mask->Xsize,
+			.height = (y1 - y0) + mask->Ysize,
+		};
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, 1);
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+void
+tilesource_draw_rect(Tilesource *tilesource,
+	double *ink, int n, gboolean fill,
+	int left, int top, int width, int height)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		VipsRect rect = {
+			.left = left,
+			.top = top,
+			.width = width,
+			.height = height,
+		};
+		vips_rect_normalise(&rect);
+
+		vips_draw_rect(image, ink, n,
+			rect.left, rect.top, rect.width, rect.height,
+			"fill", fill,
+			NULL);
+
+		vips_rect_marginadjust(&rect, 1);
+		tilesource_invalidate_area(tilesource, &rect);
+	}
+}
+
+void
+tilesource_draw_circle(Tilesource *tilesource,
+	double *ink, int n, gboolean fill, int left, int top, int radius)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		vips_draw_circle(image, ink, n, left, top, radius,
+			"fill", fill,
+			NULL);
+
+		VipsRect rect = {
+			.left = left - radius,
+			.top = top - radius,
+			.width = radius * 2,
+			.height = radius * 2,
+		};
+		vips_rect_normalise(&rect);
+		vips_rect_marginadjust(&rect, 1);
+		tilesource_invalidate_area(tilesource, &rect);
+	}
+}
+
+static void
+tilesource_draw_smudge_point(VipsImage *image, VipsPel *pink,
+	int x, int y, void *client)
+{
+	int width = GPOINTER_TO_INT(client);
+
+	vips_draw_smudge(image, x - width / 2, y - width / 2, width, width, NULL);
+}
+
+void
+tilesource_draw_smudge(Tilesource *tilesource, int width,
+	int x0, int y0, int x1, int y1)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		// not used, but vips_draw_line likes it
+		double rgb[3] = {0, 0, 0};
+
+		vips_draw_line(image, rgb, 3, x0, y0, x1, y1,
+			"draw-point", tilesource_draw_smudge_point,
+			"client", GINT_TO_POINTER(width),
+			NULL);
+
+		// smudging must always make at least 1 change, even for zero-length
+		// lines
+		vips_draw_smudge(image,
+			x0 - width / 2, y0 - width / 2, width, width, NULL);
+
+		VipsRect dirty = {
+			.left = x0,
+			.top = y0,
+			.width = x1 - x0,
+			.height = y1 - y0,
+		};
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, width / 2 + 1);
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+void
+tilesource_draw_flood(Tilesource *tilesource,
+	double *ink, int n, gboolean equal, int x, int y)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		VipsRect dirty;
+		vips_draw_flood(image, ink, n, x, y,
+			"equal", equal,
+			"left", &dirty.left,
+			"top", &dirty.top,
+			"width", &dirty.width,
+			"height", &dirty.height,
+			NULL);
+
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, 1);
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+void
+tilesource_draw_mask(Tilesource *tilesource,
+	double *ink, int n, VipsImage *mask, int x, int y)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		vips_draw_mask(image, ink, n, mask, x, y, NULL);
+
+		VipsRect dirty = {
+			.left = x,
+			.top = y,
+			.width = mask->Xsize,
+			.height = mask->Ysize,
+		};
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, 1);
+		tilesource_invalidate_area(tilesource, &dirty);
 	}
 }

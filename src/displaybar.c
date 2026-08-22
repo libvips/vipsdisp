@@ -513,7 +513,6 @@ displaybar_class_init(DisplaybarClass *class)
 			_("Preserve view settings on new image"),
 			FALSE,
 			G_PARAM_READWRITE));
-
 }
 
 Displaybar *
@@ -545,5 +544,3 @@ displaybar_set_view_settings(Displaybar *displaybar,
 	displaybar->view_settings = *view_settings;
 	displaybar_apply_view_settings(displaybar);
 }
-
-

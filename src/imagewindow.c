@@ -92,6 +92,7 @@ struct _Imagewindow {
 	GtkWidget *properties;
 	GtkWidget *displaybar;
 	GtkWidget *info_bar;
+	GtkWidget *paintbox;
 	GtkWidget *region_menu;
 
 	/* The set of active images in the stack right now. These are not
@@ -156,7 +157,7 @@ imagewindow_set_error(Imagewindow *win, const char *message)
 	gtk_action_bar_set_revealed(GTK_ACTION_BAR(win->error_bar), TRUE);
 }
 
-static void
+void
 imagewindow_error(Imagewindow *win)
 {
 	imagewindow_set_error(win, vips_error_buffer());
@@ -277,7 +278,12 @@ sort_filenames(const void *a, const void *b)
 	const char *f1 = (const char *) a;
 	const char *f2 = (const char *) b;
 
-	return g_ascii_strcasecmp(f1, f2);
+	/* Case-sensitive utf-8 filename sort.
+	 */
+	g_autofree char *a_fold = g_utf8_casefold(f1, -1);
+	g_autofree char *b_fold = g_utf8_casefold(f2, -1);
+
+	return g_utf8_collate(a_fold, b_fold);
 }
 
 static void
@@ -335,7 +341,7 @@ imagewindow_files_set_path(Imagewindow *win, const char *path)
 		g_autofree char *path = g_build_path("/", win->dirname, filename, NULL);
 		g_autoptr(GFile) this_file = g_file_new_for_path(path);
 
-		// - never add the the passed-in filename (we add it above)
+		// - never add the passed-in filename (we add it above)
 		// - avoid directories and dotfiles
 		if (!g_file_equal(file, this_file) &&
 			!vips_isprefix(".", filename) &&
@@ -347,7 +353,7 @@ imagewindow_files_set_path(Imagewindow *win, const char *path)
 
 	imagewindow_files_set_list(win, files);
 
-	// it's be great to use g_autoslist(), but I don't see how :(
+	// it'd be great to use g_autoslist(), but I don't see how :(
 	g_slist_free_full(g_steal_pointer(&files), g_free);
 
 	for (int i = 0; i < win->n_files; i++) {
@@ -425,7 +431,13 @@ imagewindow_get_tilesource(Imagewindow *win)
 Imageui *
 imagewindow_get_imageui(Imagewindow *win)
 {
-	return win->imageui;
+	return win ? win->imageui : NULL;
+}
+
+iImage *
+imagewindow_get_iimage(Imagewindow *win)
+{
+	return win ? win->iimage : NULL;
 }
 
 static void
@@ -910,6 +922,19 @@ imagewindow_info(GSimpleAction *action,
 	g_simple_action_set_state(action, state);
 }
 
+static void
+imagewindow_paintbox(GSimpleAction *action,
+	GVariant *state, gpointer user_data)
+{
+	Imagewindow *win = IMAGEWINDOW(user_data);
+
+	g_object_set(win->paintbox,
+		"revealed", g_variant_get_boolean(state),
+		NULL);
+
+	g_simple_action_set_state(action, state);
+}
+
 // is an image being background-loaded?
 static gboolean
 imagewindow_loading(Imagewindow *win)
@@ -1183,6 +1208,7 @@ static GActionEntry imagewindow_entries[] = {
 	{ "fullscreen", action_toggle, NULL, "false", imagewindow_fullscreen },
 	{ "control", action_toggle, NULL, "false", imagewindow_control },
 	{ "info", action_toggle, NULL, "false", imagewindow_info },
+	{ "paintbox", action_toggle, NULL, "false", imagewindow_paintbox },
 	{ "properties", action_toggle, NULL, "false", imagewindow_properties },
 
 	{ "next_image", imagewindow_next_image },
@@ -1254,6 +1280,9 @@ imagewindow_init(Imagewindow *win)
 	g_object_set(win->info_bar,
 		"image-window", win,
 		NULL);
+	g_object_set(win->paintbox,
+		"image-window", win,
+		NULL);
 
 	g_action_map_add_action_entries(G_ACTION_MAP(win),
 		imagewindow_entries, G_N_ELEMENTS(imagewindow_entries),
@@ -1274,6 +1303,11 @@ imagewindow_init(Imagewindow *win)
 
 	g_settings_bind(win->settings, "info",
 		G_OBJECT(win->info_bar),
+		"revealed",
+		G_SETTINGS_BIND_DEFAULT);
+
+	g_settings_bind(win->settings, "paintbox",
+		G_OBJECT(win->paintbox),
 		"revealed",
 		G_SETTINGS_BIND_DEFAULT);
 
@@ -1302,6 +1336,7 @@ imagewindow_init(Imagewindow *win)
 	set_state(GTK_WIDGET(win), win->settings, "properties");
 	set_state(GTK_WIDGET(win), win->settings, "control");
 	set_state(GTK_WIDGET(win), win->settings, "info");
+	set_state(GTK_WIDGET(win), win->settings, "paintbox");
 
 	// some kind of gtk bug? hexpand on properties can't be set from .ui or in
 	// properties.c, but must be set after adding to a parent
@@ -1355,6 +1390,7 @@ imagewindow_class_init(ImagewindowClass *class)
 	BIND_VARIABLE(Imagewindow, properties);
 	BIND_VARIABLE(Imagewindow, displaybar);
 	BIND_VARIABLE(Imagewindow, info_bar);
+	BIND_VARIABLE(Imagewindow, paintbox);
 	BIND_VARIABLE(Imagewindow, region_menu);
 
 	BIND_CALLBACK(imagewindow_pressed);

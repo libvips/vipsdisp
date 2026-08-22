@@ -32,6 +32,8 @@
         <child>
           <object class="GtkEventControllerMotion">
             <signal name="motion" handler="imageui_motion"/>
+            <signal name="enter" handler="imageui_enter"/>
+            <signal name="leave" handler="imageui_leave"/>
           </object>
         </child>
 

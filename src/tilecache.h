@@ -93,6 +93,7 @@ typedef struct _Tilecache {
 	guint tilesource_loaded_sid;
 	guint tilesource_tiles_changed_sid;
 	guint tilesource_collect_sid;
+	guint tilesource_invalidate_area_sid;
 
 } Tilecache;
 

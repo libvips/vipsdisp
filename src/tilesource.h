@@ -295,4 +295,19 @@ void tilesource_changed(Tilesource *tilesource);
 
 void tilesource_set_synchronous(Tilesource *source, gboolean synchronous);
 
+void tilesource_draw_line(Tilesource *tilesource,
+	double *ink, int n, VipsImage *mask,
+	int x0, int y0, int x1, int y1);
+void tilesource_draw_rect(Tilesource *tilesource,
+	double *ink, int n, gboolean fill,
+	int left, int top, int width, int height);
+void tilesource_draw_circle(Tilesource *tilesource,
+	double *ink, int n, gboolean fill, int left, int top, int radius);
+void tilesource_draw_smudge(Tilesource *tilesource, int width,
+	int x0, int y0, int x1, int y1);
+void tilesource_draw_flood(Tilesource *tilesource,
+	double *ink, int n, gboolean equal, int x, int y);
+void tilesource_draw_mask(Tilesource *tilesource,
+	double *ink, int n, VipsImage *mask, int x, int y);
+
 #endif /*__TILESOURCE_H*/

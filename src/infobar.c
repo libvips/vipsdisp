@@ -231,11 +231,11 @@ infobar_get_pixel(void *a, void *b)
 	 * example.
 	 */
 	update->result = !vips_getpoint(image,
-			&update->vector, &update->n,
-			VIPS_CLIP(0, update->image_x, image->Xsize - 1),
-			VIPS_CLIP(0, update->image_y, image->Ysize - 1),
-			"unpack_complex", TRUE,
-			NULL);
+		&update->vector, &update->n,
+		VIPS_CLIP(0, update->image_x, image->Xsize - 1),
+		VIPS_CLIP(0, update->image_y, image->Ysize - 1),
+		"unpack_complex", TRUE,
+		NULL);
 
 	g_idle_add(infobar_update_pixel_idle, update);
 }

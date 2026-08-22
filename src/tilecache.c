@@ -55,17 +55,28 @@ static guint tilecache_signals[SIG_LAST] = { 0 };
 G_DEFINE_TYPE(Tilecache, tilecache, G_TYPE_OBJECT);
 
 static void
-tilecache_free_level(Tilecache *tilecache, int i)
+tilecache_free_level(Tilecache *tilecache, int z)
 {
-	for (GSList *p = tilecache->tiles[i]; p; p = p->next) {
+	for (GSList *p = tilecache->tiles[z]; p; p = p->next) {
 		Tile *tile = TILE(p->data);
 
 		VIPS_UNREF(tile);
 	}
 
-	VIPS_FREEF(g_slist_free, tilecache->tiles[i]);
-	VIPS_FREEF(g_slist_free, tilecache->visible[i]);
-	VIPS_FREEF(g_slist_free, tilecache->free[i]);
+	VIPS_FREEF(g_slist_free, tilecache->tiles[z]);
+	VIPS_FREEF(g_slist_free, tilecache->visible[z]);
+	VIPS_FREEF(g_slist_free, tilecache->free[z]);
+}
+
+static void
+tilecache_disconnect_tilesource(Tilecache *tilecache)
+{
+	FREESID(tilecache->tilesource_changed_sid, tilecache->tilesource);
+	FREESID(tilecache->tilesource_loaded_sid, tilecache->tilesource);
+	FREESID(tilecache->tilesource_tiles_changed_sid, tilecache->tilesource);
+	FREESID(tilecache->tilesource_collect_sid, tilecache->tilesource);
+	FREESID(tilecache->tilesource_invalidate_area_sid, tilecache->tilesource);
+	VIPS_UNREF(tilecache->tilesource);
 }
 
 static void
@@ -77,11 +88,8 @@ tilecache_dispose(GObject *object)
 	printf("tilecache_dispose: %p\n", object);
 #endif /*DEBUG*/
 
-	FREESID(tilecache->tilesource_changed_sid, tilecache->tilesource);
-	FREESID(tilecache->tilesource_loaded_sid, tilecache->tilesource);
-	FREESID(tilecache->tilesource_tiles_changed_sid, tilecache->tilesource);
-	FREESID(tilecache->tilesource_collect_sid, tilecache->tilesource);
-	VIPS_UNREF(tilecache->tilesource);
+	tilecache_disconnect_tilesource(tilecache);
+
 	VIPS_UNREF(tilecache->background_texture);
 
 	for (int i = 0; i < MAX_LEVELS; i++)
@@ -113,12 +121,10 @@ tilecache_area_changed(Tilecache *tilecache, VipsRect *dirty, int z)
 static GdkTexture *
 tilecache_texture(TilecacheBackground background)
 {
-	int x, y, z;
-
 	VipsPel *data = g_malloc(TILE_SIZE * TILE_SIZE * 3);
-	for (y = 0; y < TILE_SIZE; y++)
-		for (x = 0; x < TILE_SIZE; x++)
-			for (z = 0; z < 3; z++) {
+	for (int y = 0; y < TILE_SIZE; y++)
+		for (int x = 0; x < TILE_SIZE; x++)
+			for (int z = 0; z < 3; z++) {
 				int v;
 
 				switch (background) {
@@ -214,7 +220,7 @@ tilecache_rebuild_pyramid(Tilecache *tilecache)
 /* All tiles need refetching, perhaps after eg. "falsecolour" etc. Mark
  * all tiles invalid and reemit.
  */
-void
+static void
 tilecache_source_tiles_changed(Tilesource *tilesource,
 	Tilecache *tilecache)
 {
@@ -222,8 +228,8 @@ tilecache_source_tiles_changed(Tilesource *tilesource,
 	printf("tilecache_source_tiles_changed: %p\n", tilecache);
 #endif /*DEBUG*/
 
-	for (int i = 0; i < tilecache->n_levels; i++)
-		for (GSList *p = tilecache->tiles[i]; p; p = p->next) {
+	for (int z = 0; z < tilecache->n_levels; z++)
+		for (GSList *p = tilecache->tiles[z]; p; p = p->next) {
 			Tile *tile = TILE(p->data);
 
 			tile_invalidate(tile);
@@ -249,13 +255,13 @@ tilecache_source_changed(Tilesource *tilesource, Tilecache *tilecache)
 
 	/* Remove all invisible tiles. They could show up later and cause flicker.
 	 */
-	for (int i = 0; i < tilecache->n_levels; i++)
-		while (tilecache->free[i]) {
-			g_autoptr(Tile) tile = TILE(tilecache->free[i]->data);
+	for (int z = 0; z < tilecache->n_levels; z++)
+		while (tilecache->free[z]) {
+			g_autoptr(Tile) tile = TILE(tilecache->free[z]->data);
 
-			tilecache->tiles[i] = g_slist_remove(tilecache->tiles[i], tile);
-			tilecache->visible[i] = g_slist_remove(tilecache->visible[i], tile);
-			tilecache->free[i] = g_slist_remove(tilecache->free[i], tile);
+			tilecache->tiles[z] = g_slist_remove(tilecache->tiles[z], tile);
+			tilecache->visible[z] = g_slist_remove(tilecache->visible[z], tile);
+			tilecache->free[z] = g_slist_remove(tilecache->free[z], tile);
 		}
 
 	/* All views must update.
@@ -474,17 +480,38 @@ tilecache_source_collect(Tilesource *tilesource,
 	}
 }
 
+/* An area in base coordinates has changed, eg. has been painted on. We must
+ * invalidate all tiles that touch it, and fetch them again.
+ */
+static void
+tilecache_source_invalidate_area(Tilesource *tilesource,
+	VipsRect *dirty, Tilecache *tilecache)
+{
+#ifdef DEBUG_VERBOSE
+	printf("tilecache_source_invalidate_area: left = %d, top = %d, "
+		   "width = %d, height = %d\n",
+		dirty->left, dirty->top,
+		dirty->width, dirty->height);
+#endif /*DEBUG_VERBOSE*/
+
+	for (int z = 0; z < tilecache->n_levels; z++)
+		for (GSList *p = tilecache->tiles[z]; p; p = p->next) {
+			Tile *tile = TILE(p->data);
+
+			if (vips_rect_overlapsrect(&tile->bounds0, dirty))
+				tile_invalidate(tile);
+		}
+
+	tilecache_tiles_changed(tilecache);
+}
+
 static void
 tilecache_set_tilesource(Tilecache *tilecache, Tilesource *tilesource)
 {
-	FREESID(tilecache->tilesource_changed_sid, tilecache->tilesource);
-	FREESID(tilecache->tilesource_loaded_sid, tilecache->tilesource);
-	FREESID(tilecache->tilesource_tiles_changed_sid, tilecache->tilesource);
-	FREESID(tilecache->tilesource_collect_sid, tilecache->tilesource);
-	VIPS_UNREF(tilecache->tilesource);
+	tilecache_disconnect_tilesource(tilecache);
 
-	tilecache->tilesource = tilesource;
 	if (tilesource) {
+		tilecache->tilesource = tilesource;
 		g_object_ref(tilesource);
 
 		tilecache_rebuild_pyramid(tilecache);
@@ -501,6 +528,9 @@ tilecache_set_tilesource(Tilecache *tilecache, Tilesource *tilesource)
 		tilecache->tilesource_collect_sid =
 			g_signal_connect(tilesource, "collect",
 				G_CALLBACK(tilecache_source_collect), tilecache);
+		tilecache->tilesource_invalidate_area_sid =
+			g_signal_connect(tilesource, "invalidate-area",
+				G_CALLBACK(tilecache_source_invalidate_area), tilecache);
 
 		/* Everything has potentially changed, including the image size.
 		 */
@@ -677,20 +707,20 @@ tilecache_free_oldest(Tilecache *tilecache, int z)
 static void
 tilecache_print(Tilecache *tilecache)
 {
-	for (int i = 0; i < tilecache->n_levels; i++)
-		if (tilecache->tiles[i])
+	for (int z = 0; z < tilecache->n_levels; z++)
+		if (tilecache->tiles[z])
 			printf("  level %d, %d tiles, %d visible, %d free\n",
-				i,
-				g_slist_length(tilecache->tiles[i]),
-				g_slist_length(tilecache->visible[i]),
-				g_slist_length(tilecache->free[i]));
+				z,
+				g_slist_length(tilecache->tiles[z]),
+				g_slist_length(tilecache->visible[z]),
+				g_slist_length(tilecache->free[z]));
 
-	for (int i = 0; i < tilecache->n_levels; i++)
-		if (tilecache->tiles[i]) {
-			printf("  level %d tiles:\n", i);
-			for (GSList *p = tilecache->tiles[i]; p; p = p->next) {
+	for (int z = 0; z < tilecache->n_levels; z++)
+		if (tilecache->tiles[z]) {
+			printf("  level %d tiles:\n", z);
+			for (GSList *p = tilecache->tiles[z]; p; p = p->next) {
 				Tile *tile = TILE(p->data);
-				int visible = g_slist_index(tilecache->visible[i], tile) >= 0;
+				int visible = g_slist_index(tilecache->visible[z], tile) >= 0;
 
 				printf("    @ %d x %d, %d x %d, "
 					   "valid = %d, visible = %d, "
@@ -754,12 +784,12 @@ tilecache_compute_visibility(Tilecache *tilecache,
 	/* So any tiles we've not touched must be invisible and therefore
 	 * candidates for freeing.
 	 */
-	for (int i = 0; i < tilecache->n_levels; i++) {
-		for (GSList *p = tilecache->tiles[i]; p; p = p->next) {
+	for (int z = 0; z < tilecache->n_levels; z++) {
+		for (GSList *p = tilecache->tiles[z]; p; p = p->next) {
 			Tile *tile = TILE(p->data);
 
 			if (tile->time < start_time)
-				tilecache->free[i] = g_slist_prepend(tilecache->free[i], tile);
+				tilecache->free[z] = g_slist_prepend(tilecache->free[z], tile);
 		}
 	}
 
@@ -768,8 +798,8 @@ tilecache_compute_visibility(Tilecache *tilecache,
 	 * Never free tiles in the lowest-res few levels. They are useful for
 	 * filling in holes and take little memory.
 	 */
-	for (int i = 0; i < tilecache->n_levels - 3; i++)
-		tilecache_free_oldest(tilecache, i);
+	for (int z = 0; z < tilecache->n_levels - 3; z++)
+		tilecache_free_oldest(tilecache, z);
 
 #ifdef DEBUG_VERBOSE
 	tilecache_print(tilecache);

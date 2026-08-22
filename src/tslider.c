@@ -236,7 +236,7 @@ tslider_value_changed(GtkAdjustment *adj, Tslider *tslider)
 		tslider->svalue = gtk_adjustment_get_value(adj);
 
 		if (tslider->auto_link) {
-			tslider->value = tslider_slider_to_value( tslider, tslider->svalue);
+			tslider->value = tslider_slider_to_value(tslider, tslider->svalue);
 			tslider_changed(tslider);
 		}
 		else

@@ -1,0 +1,23 @@
+<svg
+        xmlns='http://www.w3.org/2000/svg'
+        xmlns:svg='http://www.w3.org/2000/svg'
+        fill='none'
+        width='800px'
+        height='800px'
+        viewBox='0 0 24 24'
+        class='transparent-fill'>
+  <path
+          fill='none'
+          fill-rule='nonzero'
+          stroke='url(#gpa:foreground) rgb(0,0,0)'
+          stroke-opacity='1'
+          stroke-width='2'
+          stroke-linecap='round'
+          stroke-linejoin='round'
+          stroke-miterlimit='4'
+          d='M 12 3 L 12 21 M 9 21 L 15 21 M 19 6 L 19 3 L 5 3 L 5 6'
+          gpa:stroke-minwidth='0.5'
+          gpa:stroke-maxwidth='3'
+          class='transparent-fill foreground-stroke'>
+  </path>
+</svg>

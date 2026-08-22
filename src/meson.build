@@ -23,6 +23,7 @@ endif
 headers = files(
   'tilesource.h',
   'tilecache.h',
+  'paintbox.h',
 )
 
 sources = files(
@@ -38,6 +39,7 @@ sources = files(
   'compile.c',
   'displaybar.c',
   'dump.c',
+  'draw_mask.c',
   'editview.c',
   'expr.c',
   'expression.c',
@@ -60,8 +62,10 @@ sources = files(
   'imagedisplay.c',
   'imageinfo.c',
   'imageui.c',
+  'imageuiregion.c',
   'imagewindow.c',
   'infobar.c',
+  'paintbox.c',
   'iobject.c',
   'iregion.c',
   'iregiongroup.c',

@@ -1,0 +1,53 @@
+<svg
+        xmlns='http://www.w3.org/2000/svg'
+        xmlns:svg='http://www.w3.org/2000/svg'
+        id='Layer_1'
+        width='800px'
+        height='800px'
+        viewBox='0 0 24 24'>
+  <path
+          fill='none'
+          fill-rule='nonzero'
+          stroke='url(#gpa:foreground) rgb(0,0,0)'
+          stroke-opacity='1'
+          stroke-width='1'
+          stroke-linecap='butt'
+          stroke-linejoin='miter'
+          stroke-miterlimit='4'
+          d='M 22.5 6.41 L 22.5 6.41 A 4.91 4.91 0 0 1 20.19 10.58 L 14.86 13.91 L 10.09 9.14 L 13.42 3.81 A 4.91 4.91 0 0 1 17.59 1.5 L 17.59 1.5 A 4.91 4.91 0 0 1 22.5 6.41 Z'
+          gpa:stroke-minwidth='0.25'
+          gpa:stroke-maxwidth='1.5'
+          class='transparent-fill foreground-stroke'>
+  </path>
+  <polyline
+          fill='none'
+          fill-rule='nonzero'
+          stroke='url(#gpa:foreground) rgb(0,0,0)'
+          stroke-opacity='1'
+          stroke-width='1'
+          stroke-linecap='butt'
+          stroke-linejoin='miter'
+          stroke-miterlimit='4'
+          points='13.91 12.96 4.36 22.5 1.5 22.5 1.5 19.64 11.04 10.09'
+          gpa:stroke-minwidth='0.25'
+          gpa:stroke-maxwidth='1.5'
+          class='transparent-fill foreground-stroke'>
+  </polyline>
+  <line
+          fill='none'
+          fill-rule='nonzero'
+          stroke='url(#gpa:foreground) rgb(0,0,0)'
+          stroke-opacity='1'
+          stroke-width='1'
+          stroke-linecap='butt'
+          stroke-linejoin='miter'
+          stroke-miterlimit='4'
+          x1='8.18'
+          y1='7.23'
+          x2='16.77'
+          y2='15.82'
+          gpa:stroke-minwidth='0.25'
+          gpa:stroke-maxwidth='1.5'
+          class='transparent-fill foreground-stroke'>
+  </line>
+</svg>

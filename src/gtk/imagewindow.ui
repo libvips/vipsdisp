@@ -96,6 +96,10 @@
               <attribute name="action">win.info</attribute>
             </item>
             <item>
+              <attribute name="label" translatable="yes">Paintbox</attribute>
+              <attribute name="action">win.paintbox</attribute>
+            </item>
+            <item>
               <attribute name="label" translatable="yes">Properties</attribute>
               <attribute name="action">win.properties</attribute>
             </item>
@@ -283,6 +287,11 @@
               </object>
             </child>
 
+          </object>
+        </child>
+
+        <child>
+          <object class="Paintbox" id="paintbox">
           </object>
         </child>
 

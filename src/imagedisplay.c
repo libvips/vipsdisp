@@ -388,20 +388,17 @@ imagedisplay_tilecache_tiles_changed(Tilecache *tilecache,
 
 static void
 imagedisplay_tilecache_area_changed(Tilecache *tilecache,
-       VipsRect *dirty, int z, Imagedisplay *imagedisplay)
+	VipsRect *dirty, int z, Imagedisplay *imagedisplay)
 {
 #ifdef DEBUG_VERBOSE
-       printf("imagedisplay_tilecache_area_changed: "
-                  "at %d x %d, size %d x %d, z = %d\n",
-               dirty->left, dirty->top,
-               dirty->width, dirty->height,
-               z);
+	printf("imagedisplay_tilecache_area_changed: "
+		"at %d x %d, size %d x %d, z = %d\n",
+		dirty->left, dirty->top,
+		dirty->width, dirty->height,
+		z);
 #endif /*DEBUG_VERBOSE*/
 
-       /* Sadly, gtk4 only has this and we can't redraw areas. Perhaps we
-        * could just regenerate part of the snapshot?
-        */
-       gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
+	gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 }
 
 static void
@@ -419,7 +416,7 @@ imagedisplay_set_tilesource(Imagedisplay *imagedisplay, Tilesource *tilesource)
 			"tilesource", tilesource,
 			NULL);
 
-	/* Do initial paint.
+	/* Initial paint.
 	 */
 	gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 }
@@ -688,7 +685,7 @@ imagedisplay_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 	gtk_snapshot_save(snapshot);
 
 	/* This can change on each repaint as windows are dragged.
-	*/
+	 */
 	GtkNative *native = gtk_widget_get_native(widget);
 	GdkSurface *surface = gtk_native_get_surface(native);
 	double pixel_size = 1.0 / gdk_surface_get_scale(surface);
@@ -947,4 +944,10 @@ imagedisplay_gtk_to_image(Imagedisplay *imagedisplay,
 
 	*x_image = VIPS_CLIP(0, *x_image, imagedisplay->image_rect.width - 1);
 	*y_image = VIPS_CLIP(0, *y_image, imagedisplay->image_rect.height - 1);
+}
+
+double
+imagedisplay_get_scale(Imagedisplay *imagedisplay)
+{
+	return imagedisplay->scale;
 }

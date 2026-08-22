@@ -1,4 +1,4 @@
-#include "vipsdisp.h"
+#include "package.h"
 
 struct _VipsdispApp {
 	GtkApplication parent;

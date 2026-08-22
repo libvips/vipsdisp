@@ -1,5 +1,5 @@
-#ifndef __VIPSDISP_H
-#define __VIPSDISP_H
+#ifndef __PACKAGE_H
+#define __PACKAGE_H
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define APP_PATH "/org/libvips/vipsdisp"
+#define APP_PATH "/org/libvips/" PACKAGE
 
 #include <gtk/gtk.h>
 
@@ -18,7 +18,7 @@
 /* i18n placeholder.
  */
 #define _(S) (S)
-#define GETTEXT_PACKAGE "vipsdisp"
+#define GETTEXT_PACKAGE PACKAGE
 
 /* The tile size for image rendering.
  */
@@ -56,4 +56,4 @@
 #include "properties.h"
 #include "fuzzy.h"
 
-#endif /* __VIPSDISP_H */
+#endif /*__PACKAGE_H*/

@@ -42,7 +42,7 @@
 #include "gtkutil.h"
 #include "ientry.h"
 #include "tslider.h"
-#include "vipsdispapp.h"
+#include "app.h"
 #include "vipsdispmarshal.h"
 #include "tile.h"
 #include "tilesource.h"

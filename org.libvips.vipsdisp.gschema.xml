@@ -1,10 +1,4 @@
 <schemalist>
-  <enum id="org.libvips.vipsdisp.background">
-    <value nick="checkerboard" value="0"/>
-    <value nick="white" value="1"/>
-    <value nick="black" value="2"/>
-  </enum>
-
   <schema path="/org/libvips/vipsdisp/" id="org.libvips.vipsdisp">
 
     <key type="b" name="control">
@@ -23,58 +17,20 @@
       </description>
     </key>
 
+    <key type="b" name="paintbox">
+      <default>false</default>
+      <summary>Show paintbox</summary>
+      <description>
+        If set, show the paintbox.
+      </description>
+    </key>
+
     <key type="b" name="properties">
       <default>false</default>
       <summary>Show Properties menu</summary>
       <description>
         If set, show the Properties pane.
       </description>
-    </key>
-
-    <key type="d" name="scale">
-      <default>1.0</default>
-      <summary>Scale</summary>
-      <description>
-        The display scale.
-      </description>
-    </key>
-
-    <key type="d" name="offset">
-      <default>0.0</default>
-      <summary>Offset</summary>
-      <description>
-        The display offset.
-      </description>
-    </key>
-
-    <key type="b" name="falsecolour">
-      <default>false</default>
-      <summary>Falsecolour</summary>
-      <description>
-        Show pixels with a falsecolour mapping.
-      </description>
-    </key>
-
-    <key type="b" name="preserve">
-      <default>false</default>
-      <summary>Preserve</summary>
-      <description>
-        Preserve view settings on new image
-      </description>
-    </key>
-
-    <key type="b" name="log">
-      <default>false</default>
-      <summary>log</summary>
-      <description>
-        Show pixels with a log mapping.
-      </description>
-    </key>
-
-    <key name="background" enum="org.libvips.vipsdisp.background">
-      <default>'white'</default>
-      <summary>Background</summary>
-      <description>The background texture for image rendering</description>
     </key>
 
   </schema>

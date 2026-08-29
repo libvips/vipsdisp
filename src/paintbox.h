@@ -1,4 +1,4 @@
-/* a status bar for the image display window
+/* the paintbox bar
  */
 
 /*
@@ -27,16 +27,34 @@
 
 */
 
-#ifndef __INFOBAR_H
-#define __INFOBAR_H
+#ifndef __PAINTBOX_H
+#define __PAINTBOX_H
 
-#define INFOBAR_TYPE (infobar_get_type())
+// currently selected tool
+typedef enum _PaintboxTool {
+	PAINTBOX_TOOL_POINTER,
+	PAINTBOX_TOOL_BRUSH,
+	PAINTBOX_TOOL_LINE,
+	PAINTBOX_TOOL_RECT,
+	PAINTBOX_TOOL_CIRCLE,
+	PAINTBOX_TOOL_SMUDGE,
+	PAINTBOX_TOOL_FLOOD_UNTIL,
+	PAINTBOX_TOOL_FLOOD_WHILE,
+	PAINTBOX_TOOL_TEXT,
+	PAINTBOX_TOOL_DROPPER,
 
-G_DECLARE_FINAL_TYPE(Infobar, infobar, APP, INFOBAR, GtkWidget)
+	PAINTBOX_TOOL_LAST
+} PaintboxTool;
 
-#define INFOBAR(obj) \
-	(G_TYPE_CHECK_INSTANCE_CAST((obj), INFOBAR_TYPE, Infobar))
+#define PAINTBOX_TYPE (paintbox_get_type())
 
-Infobar *infobar_new(Imagewindow *win);
+G_DECLARE_FINAL_TYPE(Paintbox, paintbox, APP, PAINTBOX, GtkWidget)
 
-#endif /* __INFOBAR_H */
+#define PAINTBOX(obj) \
+	(G_TYPE_CHECK_INSTANCE_CAST((obj), PAINTBOX_TYPE, Paintbox))
+
+Paintbox *paintbox_new(Imagewindow *win);
+gboolean paintbox_undo(Paintbox *paintbox);
+gboolean paintbox_redo(Paintbox *paintbox);
+
+#endif /* __PAINTBOX_H */

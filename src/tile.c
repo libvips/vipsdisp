@@ -27,7 +27,7 @@
 
  */
 
-#include "vipsdisp.h"
+#include "package.h"
 
 /*
 #define DEBUG_VERBOSE

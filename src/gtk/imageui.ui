@@ -18,6 +18,7 @@
           <object class="GtkGestureDrag">
             <signal name="drag-begin" handler="imageui_drag_begin"/>
             <signal name="drag-update" handler="imageui_drag_update"/>
+            <signal name="drag-end" handler="imageui_drag_end"/>
           </object>
         </child>
 
@@ -31,6 +32,8 @@
         <child>
           <object class="GtkEventControllerMotion">
             <signal name="motion" handler="imageui_motion"/>
+            <signal name="enter" handler="imageui_enter"/>
+            <signal name="leave" handler="imageui_leave"/>
           </object>
         </child>
 

@@ -32,9 +32,9 @@
 
 #define SAVE_OPTIONS_TYPE (save_options_get_type())
 
-#define SAVE_OPTIONS NIP4_SAVE_OPTIONS
+#define SAVE_OPTIONS APP_SAVE_OPTIONS
 
-G_DECLARE_FINAL_TYPE(SaveOptions, save_options, NIP4, SAVE_OPTIONS, GtkDialog);
+G_DECLARE_FINAL_TYPE(SaveOptions, save_options, APP, SAVE_OPTIONS, GtkDialog);
 
 SaveOptions *save_options_new(GtkWindow *parent_window,
 	VipsImage *in, const char *filename);

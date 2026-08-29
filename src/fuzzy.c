@@ -2,7 +2,7 @@
 #define DEBUG
  */
 
-#include "vipsdisp.h"
+#include "package.h"
 
 /* Minimum value of three values.
  */

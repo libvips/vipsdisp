@@ -42,38 +42,6 @@
 #define TILESOURCE_GET_CLASS(obj) \
 	(G_TYPE_INSTANCE_GET_CLASS((obj), TILESOURCE_TYPE, TilesourceClass))
 
-/* The three basic types of image we support.
- *
- * MULTIPAGE
- *
- *	Pages differ in size or perhaps format, so must be loaded as separate
- *	images. Pages can have subifd pyramids. Includes single-page images.
- *	Reload on page change.
- *
- * PAGE_PYRAMID
- *
- *	"page" param is pyr levels. We load a single page and reload on
- *	magnification change.
- *
- * TOILET_ROLL
- *
- *	All pages are the identical, so we open as a single, tall, thin strip
- *	and the viewer does any presenting as pages / animation / etc. during
- *	conversion to image image.
- *
- *	These images can have subifd pyramids.
- *
- * IMAGE
- *
- *  We've been given a VipsImage* to display, held in @base.
- */
-typedef enum _TilesourceType {
-	TILESOURCE_TYPE_MULTIPAGE,
-	TILESOURCE_TYPE_PAGE_PYRAMID,
-	TILESOURCE_TYPE_TOILET_ROLL,
-	TILESOURCE_TYPE_IMAGE,
-} TilesourceType;
-
 /* The modes of image display we support.
  *
  * UNSET
@@ -87,18 +55,18 @@ typedef enum _TilesourceType {
  *
  * MULTIPAGE
  *
- *	Behaviour depends on TilesourceType:
+ *	Behaviour depends on Tilesource details:
  *
- *	TILESOURCE_TYPE_PAGE_PYRAMID
+ *	->page_pyramid
  *
  *		Disable page controls. No crop. Reload on mag change.
  *
- *	TILESOURCE_TYPE_TOILET_ROLL
+ *	->pages_same_size && ->delay && ->n_pages > 1
  *
- *		Enable page control iff > 1 page. Crop in display conversion
+ *		Enable page controls, crop in display conversion
  *		to select page.
  *
- *	TILESOURCE_TYPE_MULTIPAGE
+ *	->n_pages > 1
  *
  *		Enable page control iff > 1 page.
  *
@@ -149,6 +117,8 @@ typedef struct _Tilesource {
 	/* The loader and the file we have loaded from. We may need to reload
 	 * on a zoom or page change. We can't use a VipsSource since they are not
 	 * cached and we'd get repeated decode on page change.
+	 *
+	 * filename is NULL for a computed image.
 	 */
 	const char *loader;
 	char *filename;
@@ -159,7 +129,6 @@ typedef struct _Tilesource {
 	 * Some properties of this base image
 	 */
 	VipsImage *base;
-	TilesourceType type;			// what general type of image we have
 	int n_pages;
 	int page_height;
 	int n_subifds;
@@ -174,8 +143,8 @@ typedef struct _Tilesource {
 	 */
 	gboolean page_pyramid;
 
-	/* If all the pages are the same size and format, we can load as a
-	 * toilet roll.
+	/* If all the pages are the same size and format, we can display as a
+	 * toilet roll or animated.
 	 */
 	gboolean pages_same_size;
 
@@ -308,6 +277,12 @@ GType tilesource_get_type(void);
 Tilesource *tilesource_new_from_file(const char *filename);
 Tilesource *tilesource_new_from_image(VipsImage *image);
 
+#ifdef NIP4
+Tilesource *tilesource_new_from_imageinfo(Imageinfo *ii);
+Tilesource *tilesource_new_from_iimage(iImage *iimage, int priority);
+gboolean tilesource_has_imageinfo(Tilesource *tilesource, Imageinfo *ii);
+#endif /*NIP4*/
+
 void tilesource_background_load(Tilesource *tilesource);
 
 int tilesource_request_tile(Tilesource *tilesource, Tile *tile);
@@ -322,5 +297,36 @@ Tilesource *tilesource_duplicate(Tilesource *tilesource);
 void tilesource_changed(Tilesource *tilesource);
 
 void tilesource_set_synchronous(Tilesource *source, gboolean synchronous);
+
+typedef void (*TilesourceSaveFn)(void *client, VipsRect *dirty);
+
+void tilesource_draw_line(Tilesource *tilesource,
+	double *ink, int n, VipsImage *mask,
+	int x0, int y0, int x1, int y1,
+	TilesourceSaveFn save, void *client);
+void tilesource_draw_line1(Tilesource *tilesource,
+	double *ink, int n,
+	int x0, int y0, int x1, int y1,
+	TilesourceSaveFn save, void *client);
+void tilesource_draw_rect(Tilesource *tilesource,
+	double *ink, int n, gboolean fill,
+	int left, int top, int width, int height,
+	TilesourceSaveFn save, void *client);
+void tilesource_draw_circle(Tilesource *tilesource,
+	double *ink, int n, gboolean fill, int left, int top, int radius,
+	TilesourceSaveFn save, void *client);
+void tilesource_draw_smudge(Tilesource *tilesource, int width,
+	int x0, int y0, int x1, int y1,
+	TilesourceSaveFn save, void *client);
+void tilesource_draw_flood(Tilesource *tilesource,
+	double *ink, int n, gboolean equal, int x, int y,
+	TilesourceSaveFn save, void *client);
+void tilesource_draw_mask(Tilesource *tilesource,
+	double *ink, int n, VipsImage *mask, int x, int y,
+	TilesourceSaveFn save, void *client);
+
+VipsImage *tilesource_draw_copy(Tilesource *tilesource, VipsRect *area);
+void tilesource_draw_paste(Tilesource *tilesource,
+	VipsImage *paste, VipsRect *position);
 
 #endif /*__TILESOURCE_H*/

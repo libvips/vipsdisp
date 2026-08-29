@@ -33,7 +33,7 @@
 #define DEBUG
  */
 
-#include "vipsdisp.h"
+#include "package.h"
 
 /* Use this threadpool to do background loads of images.
  */
@@ -63,6 +63,7 @@ enum {
 	SIG_POSTEVAL,
 	SIG_CHANGED,
 	SIG_TILES_CHANGED,
+	SIG_INVALIDATE_AREA,
 	SIG_COLLECT,
 	SIG_PAGE_CHANGED,
 	SIG_LOADED,
@@ -118,6 +119,12 @@ tilesource_collect(Tilesource *tilesource, VipsRect *dirty, int z)
 }
 
 static void
+tilesource_invalidate_area(Tilesource *tilesource, VipsRect *area)
+{
+	g_signal_emit(tilesource, tilesource_signals[SIG_INVALIDATE_AREA], 0, area);
+}
+
+static void
 tilesource_page_changed(Tilesource *tilesource)
 {
 	g_signal_emit(tilesource, tilesource_signals[SIG_PAGE_CHANGED], 0);
@@ -136,7 +143,8 @@ typedef struct _TilesourceUpdate {
 	int z;
 } TilesourceUpdate;
 
-/* Open a specified level. Take page (if relevant) from the tilesource.
+/* Open a specified level. Take page (if relevant) from the tilesource. Try to
+ * open all pages if pages_same_size is set.
  */
 static VipsImage *
 tilesource_open(Tilesource *tilesource, int level)
@@ -145,7 +153,7 @@ tilesource_open(Tilesource *tilesource, int level)
 	 * images, since pages can vary in size (eg. PDF or TIFF) and we can't
 	 * open everything.
 	 */
-	gboolean all_pages = tilesource->type == TILESOURCE_TYPE_TOILET_ROLL;
+	gboolean all_pages = tilesource->pages_same_size;
 	int n = all_pages ? -1 : 1;
 	int page = all_pages ? 0 : tilesource->page;
 
@@ -252,6 +260,7 @@ tilesource_render_notify_idle(void *user_data)
 
 	/* Matches the g_new() in tilesource_render_notify().
 	 */
+	VIPS_UNREF(update->tilesource);
 	g_free(update);
 
 	return FALSE;
@@ -279,6 +288,10 @@ tilesource_render_notify(VipsImage *image, VipsRect *rect, void *client)
 	new_update->rect.width = rect->width << update->z;
 	new_update->rect.height = rect->height << update->z;
 
+	/* Make sure the tilesource stays until this update is processed.
+	 */
+	g_object_ref(new_update->tilesource);
+
 	g_idle_add(tilesource_render_notify_idle, new_update);
 }
 
@@ -303,7 +316,7 @@ tilesource_image(Tilesource *tilesource, VipsImage **mask_out, int current_z)
 
 	/* Open the image with any shrink-on-load tricks.
 	 */
-	if (tilesource->type == TILESOURCE_TYPE_IMAGE) {
+	if (!tilesource->filename) {
 		/* We are displaying a VipsImage* and there's no reopen possible.
 		 */
 		image = tilesource->base;
@@ -362,13 +375,13 @@ tilesource_image(Tilesource *tilesource, VipsImage **mask_out, int current_z)
 	printf("\timage_height = %d\n", tilesource->image_height);
 #endif /*DEBUG*/
 
-	/* If we have a toilet roll source and we are displaying multipage or
+	/* If we have a pages-same-size source and we are displaying multipage or
 	 * animated, crop out the page we want.
 	 *
 	 * We need to crop using the page size on image, since it might have
 	 * been shrunk by shrink-on-load above ^^
 	 */
-	if (tilesource->type == TILESOURCE_TYPE_TOILET_ROLL &&
+	if (tilesource->pages_same_size &&
 		(tilesource->mode == TILESOURCE_MODE_MULTIPAGE ||
 		 tilesource->mode == TILESOURCE_MODE_ANIMATED)) {
 		// loaders will adjust page_height for shrink-on-load, so we can just
@@ -378,8 +391,7 @@ tilesource_image(Tilesource *tilesource, VipsImage **mask_out, int current_z)
 		VipsImage *x;
 
 		if (vips_crop(image, &x,
-				0, tilesource->page * page_height,
-				image->Xsize, page_height, NULL))
+			0, tilesource->page * page_height, image->Xsize, page_height, NULL))
 			return NULL;
 		VIPS_UNREF(image);
 		image = x;
@@ -396,7 +408,7 @@ tilesource_image(Tilesource *tilesource, VipsImage **mask_out, int current_z)
 
 	/* In pages-as-bands mode, crop out all pages and join band-wise.
 	 */
-	if (tilesource->type == TILESOURCE_TYPE_TOILET_ROLL &&
+	if (tilesource->pages_same_size &&
 		tilesource->mode == TILESOURCE_MODE_PAGES_AS_BANDS) {
 		// loaders will adjust page_height for shrink-on-load, so we can just
 		// use that
@@ -473,19 +485,37 @@ tilesource_image(Tilesource *tilesource, VipsImage **mask_out, int current_z)
 	}
 
 	if (current_z > 0) {
-        /* We may have already zoomed out a bit because we've loaded
-         * some layer other than the base one. Calculate the
-         * subsample as (current_width / required_width).
-         */
-        int width = VIPS_MAX(1, tilesource->image_width >> current_z);
-        int height = VIPS_MAX(1, tilesource->image_height >> current_z);
-        int xfac = VIPS_MAX(1, image->Xsize / width);
-        int yfac = VIPS_MAX(1, image->Ysize / height);
+		/* We may have already zoomed out a bit because we've loaded
+		 * some layer other than the base one. Calculate the
+		 * subsample as (current_width / required_width).
+		 */
+		int width = VIPS_MAX(1, tilesource->image_width >> current_z);
+		int height = VIPS_MAX(1, tilesource->image_height >> current_z);
+		int xfac = VIPS_MAX(1, image->Xsize / width);
+		int yfac = VIPS_MAX(1, image->Ysize / height);
 
-        if (vips_subsample(image, &x, xfac, yfac, NULL))
-            return NULL;
+		if (vips_subsample(image, &x, xfac, yfac, NULL))
+			return NULL;
 		VIPS_UNREF(image);
 		image = x;
+	}
+
+	if (image->Type == VIPS_INTERPRETATION_FOURIER) {
+		/* Fill range, log scale. Filling the range is useful for eg. the
+		 * output of the fourier mask generators.
+		 *
+		 * This has to be before the vips_render() since scale will search for
+		 * the min and max values.
+		 */
+		if (vips_scale(image, &x, "log", TRUE, NULL))
+			/* Will fail for eg. a black image, and that's fine. Just ignore
+			 * fails.
+			 */
+			vips_error_clear();
+		else {
+			VIPS_UNREF(image);
+			image = x;
+		}
 	}
 
 	if (tilesource->synchronous) {
@@ -497,7 +527,7 @@ tilesource_image(Tilesource *tilesource, VipsImage **mask_out, int current_z)
 		*mask_out = NULL;
 	}
 	else {
-		/* Need something to track the z at which we made this sink_screen.
+		/* Need to track the z at which we made this sink_screen.
 		 */
 		TilesourceUpdate *update = VIPS_NEW(image, TilesourceUpdate);
 		update->tilesource = tilesource;
@@ -665,13 +695,6 @@ tilesource_rgb(Tilesource *tilesource, VipsImage *in)
 			return NULL;
 		VIPS_UNREF(image);
 		image = x;
-
-		if (image->Type == VIPS_INTERPRETATION_FOURIER) {
-			if (!(x = tilesource_log(image)))
-				return NULL;
-			VIPS_UNREF(image);
-			image = x;
-		}
 	}
 
 	/* Colour management to srgb.
@@ -735,6 +758,9 @@ tilesource_rgb(Tilesource *tilesource, VipsImage *in)
 		image = x;
 	}
 
+	// must be forced to uint8 sRGB by now
+	image->Type = VIPS_INTERPRETATION_sRGB;
+
 	// reattach alpha
 	if (alpha) {
 		double max_alpha_before = vips_interpretation_max_alpha(alpha->Type);
@@ -759,6 +785,11 @@ tilesource_rgb(Tilesource *tilesource, VipsImage *in)
 		image = x;
 	}
 
+	// must now be RGB or RGBA uint8 sRGB
+	g_assert(image->BandFmt == VIPS_FORMAT_UCHAR);
+	g_assert(image->Bands == 3 || image->Bands == 4);
+	g_assert(image->Type == VIPS_INTERPRETATION_sRGB);
+
 	return g_steal_pointer(&image);
 }
 
@@ -776,7 +807,10 @@ tilesource_update_rgb(Tilesource *tilesource)
 		VipsImage *rgb;
 
 		if (!(rgb = tilesource_rgb(tilesource, tilesource->image))) {
-			printf("tilesource_rgb failed!\n");
+#ifdef DEBUG
+			printf("tilesource_rgb failed: %s\n", vips_error_buffer());
+#endif /*DEBUG*/
+
 			return -1;
 		}
 		VIPS_UNREF(tilesource->rgb);
@@ -813,6 +847,7 @@ tilesource_update_image(Tilesource *tilesource)
 #ifdef DEBUG
 		printf("tilesource_update_image: build failed\n");
 #endif /*DEBUG*/
+
 		return -1;
 	}
 
@@ -1196,10 +1231,12 @@ tilesource_background_load_done_idle(void *user_data)
 	Tilesource *tilesource = (Tilesource *) user_data;
 
 #ifdef DEBUG
-	printf("tilesource_background_load_done_cb: ... unreffing\n");
+	printf("tilesource_background_load_done_cb: load_error = %d\n",
+		tilesource->load_error);
 #endif /*DEBUG*/
 
-	/* You can now fetch pixels from abse and rebuild image.
+	/* You can now fetch pixels from base and rebuild image. But check
+	 * load_error.
 	 */
 	g_object_set(tilesource,
 		"loaded", TRUE,
@@ -1254,7 +1291,7 @@ tilesource_class_init(TilesourceClass *class)
 		g_param_spec_enum("mode",
 			_("Mode"),
 			_("Display mode"),
-			TYPE_MODE,
+			TILESOURCE_MODE_TYPE,
 			TILESOURCE_MODE_MULTIPAGE,
 			G_PARAM_READWRITE));
 
@@ -1376,10 +1413,19 @@ tilesource_class_init(TilesourceClass *class)
 		G_SIGNAL_RUN_LAST,
 		G_STRUCT_OFFSET(TilesourceClass, collect),
 		NULL, NULL,
-		vipsdisp_VOID__POINTER_INT,
+		app_VOID__POINTER_INT,
 		G_TYPE_NONE, 2,
 		G_TYPE_POINTER,
 		G_TYPE_INT);
+
+	tilesource_signals[SIG_INVALIDATE_AREA] = g_signal_new("invalidate-area",
+		G_TYPE_FROM_CLASS(class),
+		G_SIGNAL_RUN_LAST,
+		0,
+		NULL, NULL,
+		g_cclosure_marshal_VOID__POINTER,
+		G_TYPE_NONE, 1,
+		G_TYPE_POINTER);
 
 	tilesource_signals[SIG_PAGE_CHANGED] = g_signal_new("page-changed",
 		G_TYPE_FROM_CLASS(class),
@@ -1410,7 +1456,6 @@ tilesource_print(Tilesource *tilesource)
 	int i;
 
 	printf("tilesource: %p\n", tilesource);
-	printf("\ttype = %s\n", vips_enum_nick(TYPE_TYPE, tilesource->type));
 	printf("\tloader = %s\n", tilesource->loader);
 	printf("\tn_pages = %d\n", tilesource->n_pages);
 	printf("\tpage_height = %d\n", tilesource->page_height);
@@ -1431,7 +1476,7 @@ tilesource_print(Tilesource *tilesource)
 			tilesource->level_height[i]);
 
 	printf("\tmode = %s\n",
-		vips_enum_nick(TYPE_MODE, tilesource->mode));
+		vips_enum_nick(TILESOURCE_MODE_TYPE, tilesource->mode));
 }
 #endif /*DEBUG*/
 
@@ -1474,8 +1519,7 @@ tilesource_default_mode(Tilesource *tilesource)
 {
 	TilesourceMode mode;
 
-	if (tilesource->type == TILESOURCE_TYPE_TOILET_ROLL &&
-		tilesource->n_pages > 1) {
+	if (tilesource->n_pages > 1) {
 		if (tilesource->delay)
 			mode = TILESOURCE_MODE_ANIMATED;
 		else if (tilesource->all_mono)
@@ -1501,11 +1545,9 @@ tilesource_new_from_image(VipsImage *image)
 	if (tilesource_set_base(tilesource, image))
 		return NULL;
 
-	tilesource->type = TILESOURCE_TYPE_IMAGE;
-
 	tilesource->level_count = 1;
-	tilesource->level_width[0] = image->Xsize;;
-	tilesource->level_height[0] = image->Ysize;;
+	tilesource->level_width[0] = image->Xsize;
+	tilesource->level_height[0] = image->Ysize;
 
 	/* Always loaded.
 	 */
@@ -1514,12 +1556,16 @@ tilesource_new_from_image(VipsImage *image)
 	/* Sanity-check and set up the page geometry.
 	 */
 	tilesource->page_height = vips_image_get_page_height(image);
-	if (image->Ysize % tilesource->page_height == 0)
+	if (image->Ysize % tilesource->page_height == 0) {
 		tilesource->n_pages = image->Ysize / tilesource->page_height;
+		tilesource->pages_same_size = TRUE;
+	}
 	else {
 		tilesource->page_height = image->Ysize;
 		tilesource->n_pages = 1;
 	}
+
+	tilesource->all_mono = image->Bands == 1;
 
 	tilesource_default_mode(tilesource);
 
@@ -1528,6 +1574,56 @@ tilesource_new_from_image(VipsImage *image)
 
 	return g_steal_pointer(&tilesource);
 }
+
+#ifdef NIP4
+// use the file interface if we can, so we get fast zooming
+Tilesource *
+tilesource_new_from_imageinfo(Imageinfo *ii)
+{
+	if (imageinfo_is_from_file(ii))
+		return callv_string_filename(
+			(callv_string_fn) tilesource_new_from_file, IOBJECT(ii)->name,
+			NULL, NULL, NULL);
+	else
+		return tilesource_new_from_image(ii->image);
+}
+
+Tilesource *
+tilesource_new_from_iimage(iImage *iimage, int priority)
+{
+	Tilesource *tilesource = tilesource_new_from_imageinfo(iimage->value.ii);
+
+	g_object_set(tilesource,
+		"active", TRUE,
+		"scale", iimage->view_settings.scale,
+		"offset", iimage->view_settings.offset,
+		"falsecolour", iimage->view_settings.falsecolour,
+		"log", iimage->view_settings.log,
+		"icc", iimage->view_settings.icc,
+		"page", iimage->view_settings.page,
+		"priority", priority,
+		NULL);
+
+	if (iimage->view_settings.mode != TILESOURCE_MODE_UNSET)
+		g_object_set(tilesource,
+			"mode", iimage->view_settings.mode,
+			NULL);
+
+	return tilesource;
+}
+
+gboolean
+tilesource_has_imageinfo(Tilesource *tilesource, Imageinfo *ii)
+{
+	if (!ii)
+		return !tilesource->image;
+	else if (imageinfo_is_from_file(ii) &&
+		tilesource->filename)
+		return filenames_equal(IOBJECT(ii)->name, tilesource->filename);
+	else
+		return ii->image == tilesource->image;
+}
+#endif /*NIP4*/
 
 /* Detect a TIFF pyramid made of subifds following a roughly /2 shrink.
  */
@@ -1807,18 +1903,16 @@ tilesource_new_from_file(const char *filename)
 	/* Block error messages from eg. page-pyramidal TIFFs where pages
 	 * are not all the same size.
 	 */
-	tilesource->type = TILESOURCE_TYPE_TOILET_ROLL;
+	tilesource->pages_same_size = TRUE;
 	vips_error_freeze();
 	g_autoptr(VipsImage) x = tilesource_open(tilesource, 0);
 	vips_error_thaw();
 	if (x) {
-		/* Toilet-roll mode worked. We can update n_pages.
+		/* All pages worked. We can update n_pages.
 		 */
 		tilesource->page_height = vips_image_get_page_height(x);
-		if (x->Ysize % tilesource->page_height == 0) {
+		if (x->Ysize % tilesource->page_height == 0)
 			tilesource->n_pages = x->Ysize / tilesource->page_height;
-			tilesource->pages_same_size = TRUE;
-		}
 		else {
 #ifdef DEBUG
 			printf("tilesource_new_from_file: bad page layout\n");
@@ -1827,8 +1921,11 @@ tilesource_new_from_file(const char *filename)
 			tilesource->n_pages = 1;
 			VIPS_FREE(tilesource->delay);
 			tilesource->n_delay = 0;
+			tilesource->pages_same_size = FALSE;
 		}
 	}
+	else
+		tilesource->pages_same_size = FALSE;
 
 	/* Are all pages the same size and format, and also all mono (one
 	 * band)? We can display pages-as-bands.
@@ -1856,17 +1953,6 @@ tilesource_new_from_file(const char *filename)
 			tilesource->page_pyramid = FALSE;
 	}
 
-	/* Sniffing is done ... set the image type.
-	 */
-	if (tilesource->pages_same_size)
-		tilesource->type = TILESOURCE_TYPE_TOILET_ROLL;
-	else {
-		if (tilesource->page_pyramid)
-			tilesource->type = TILESOURCE_TYPE_PAGE_PYRAMID;
-		else
-			tilesource->type = TILESOURCE_TYPE_MULTIPAGE;
-	}
-
 	/* And now we can reopen in the correct mode.
 	 */
 	g_autoptr(VipsImage) base = tilesource_open(tilesource, 0);
@@ -1879,8 +1965,8 @@ tilesource_new_from_file(const char *filename)
 	 */
 	if (!tilesource->level_count) {
 		tilesource->level_count = 1;
-		tilesource->level_width[0] = base->Xsize;;
-		tilesource->level_height[0] = base->Ysize;;
+		tilesource->level_width[0] = base->Xsize;
+		tilesource->level_height[0] = base->Ysize;
 	}
 
 	/* Default page geometry if we've not found any other way to set it.
@@ -1928,15 +2014,12 @@ tilesource_request_tile(Tilesource *tilesource, Tile *tile)
 {
 #ifdef DEBUG_VERBOSE
 	printf("tilesource_request_tile: %d x %d\n",
-		tile->region->valid.left, tile->region->valid.top);
+		tile->bounds.left, tile->bounds.top);
 #endif /*DEBUG_VERBOSE*/
 
-	/* Load was cancelled, perhaps.
-	 */
 	if (tilesource->load_error) {
-		vips_error("Fetch tile", _("Unable to load image\n%s"), 
+		vips_error("Fetch tile", _("Unable to load image: %s"),
 			tilesource->load_message);
-
 		return -1;
 	}
 
@@ -1950,8 +2033,7 @@ tilesource_request_tile(Tilesource *tilesource, Tile *tile)
 
 	/* Clip the tile against the size of this level.
 	 */
-	VipsRect image = { 0, 0,
-		tilesource->image->Xsize, tilesource->image->Ysize };
+	VipsRect image = {0, 0, tilesource->image->Xsize, tilesource->image->Ysize};
 	VipsRect hit;
 	vips_rect_intersectrect(&tile->bounds, &image, &hit);
 
@@ -1988,7 +2070,7 @@ tilesource_collect_tile(Tilesource *tilesource, Tile *tile)
 {
 #ifdef DEBUG_VERBOSE
 	printf("tilesource_collect_tile: %d x %d\n",
-		tile->region->valid.left, tile->region->valid.top);
+		tile->bounds.left, tile->bounds.top);
 #endif /*DEBUG_VERBOSE*/
 
 	/* Clip the tile against the size of this level.
@@ -2049,7 +2131,7 @@ tilesource_get_image(Tilesource *tilesource)
 VipsImage *
 tilesource_get_base_image(Tilesource *tilesource)
 {
-	return tilesource->base;
+	return tilesource ? tilesource->base : NULL;
 }
 
 void
@@ -2067,3 +2149,257 @@ tilesource_set_synchronous(Tilesource *tilesource, gboolean synchronous)
 		tilesource_update_image(tilesource);
 	}
 }
+
+static void
+tilesource_draw_line_point(VipsImage *image, VipsPel *pink,
+	int x, int y, void *client)
+{
+	VipsImage *mask = VIPS_IMAGE(client);
+
+	draw_mask(image, pink, mask, x - mask->Xsize / 2, y - mask->Ysize / 2);
+}
+
+void
+tilesource_draw_line(Tilesource *tilesource,
+	double *ink, int n, VipsImage *mask,
+	int x0, int y0, int x1, int y1,
+	TilesourceSaveFn save, void *client)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		VipsRect dirty = {
+			.left = x0,
+			.top = y0,
+			.width = x1 - x0,
+			.height = y1 - y0,
+		};
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, 1 + mask->Xsize / 2);
+		save(client, &dirty);
+
+		vips_draw_line(image, ink, n, x0, y0, x1, y1,
+			"draw-point", tilesource_draw_line_point,
+			"client", mask,
+			NULL);
+
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+void
+tilesource_draw_line1(Tilesource *tilesource,
+	double *ink, int n,
+	int x0, int y0, int x1, int y1,
+	TilesourceSaveFn save, void *client)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		VipsRect dirty = {
+			.left = x0,
+			.top = y0,
+			.width = x1 - x0,
+			.height = y1 - y0,
+		};
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, 1);
+		save(client, &dirty);
+
+		vips_draw_line(image, ink, n, x0, y0, x1, y1, NULL);
+
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+void
+tilesource_draw_rect(Tilesource *tilesource,
+	double *ink, int n, gboolean fill,
+	int left, int top, int width, int height,
+	TilesourceSaveFn save, void *client)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		VipsRect dirty = {
+			.left = left,
+			.top = top,
+			.width = width,
+			.height = height,
+		};
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, 1);
+		save(client, &dirty);
+
+		vips_draw_rect(image, ink, n,
+			dirty.left, dirty.top, dirty.width, dirty.height,
+			"fill", fill,
+			NULL);
+
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+void
+tilesource_draw_circle(Tilesource *tilesource,
+	double *ink, int n, gboolean fill, int left, int top, int radius,
+	TilesourceSaveFn save, void *client)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		VipsRect dirty = {
+			.left = left - radius,
+			.top = top - radius,
+			.width = radius * 2,
+			.height = radius * 2,
+		};
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, 1);
+		save(client, &dirty);
+
+		vips_draw_circle(image, ink, n, left, top, radius,
+			"fill", fill,
+			NULL);
+
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+static void
+tilesource_draw_smudge_point(VipsImage *image, VipsPel *pink,
+	int x, int y, void *client)
+{
+	int width = GPOINTER_TO_INT(client);
+
+	vips_draw_smudge(image, x - width / 2, y - width / 2, width, width, NULL);
+}
+
+void
+tilesource_draw_smudge(Tilesource *tilesource, int width,
+	int x0, int y0, int x1, int y1,
+	TilesourceSaveFn save, void *client)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		VipsRect dirty = {
+			.left = x0,
+			.top = y0,
+			.width = x1 - x0,
+			.height = y1 - y0,
+		};
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, width / 2 + 1);
+		save(client, &dirty);
+
+		// not used, but vips_draw_line likes it
+		double rgb[3] = {0, 0, 0};
+		vips_draw_line(image, rgb, 3, x0, y0, x1, y1,
+			"draw-point", tilesource_draw_smudge_point,
+			"client", GINT_TO_POINTER(width),
+			NULL);
+
+		// smudging must always make at least 1 change, even for zero-length
+		// lines
+		if (x0 == x1 &&
+			y0 == y1)
+			vips_draw_smudge(image,
+				x0 - width / 2, y0 - width / 2, width, width, NULL);
+
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+void
+tilesource_draw_flood(Tilesource *tilesource,
+	double *ink, int n, gboolean equal, int x, int y,
+	TilesourceSaveFn save, void *client)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		// save the whole image, we don't know how much flood might change
+		VipsRect dirty = {
+			.left = 0,
+			.top = 0,
+			.width = image->Xsize,
+			.height = image->Ysize,
+		};
+		save(client, &dirty);
+
+		vips_draw_flood(image, ink, n, x, y,
+			"equal", equal,
+			"left", &dirty.left,
+			"top", &dirty.top,
+			"width", &dirty.width,
+			"height", &dirty.height,
+			NULL);
+
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+void
+tilesource_draw_mask(Tilesource *tilesource,
+	double *ink, int n, VipsImage *mask, int x, int y,
+	TilesourceSaveFn save, void *client)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		VipsRect dirty = {
+			.left = x,
+			.top = y,
+			.width = mask->Xsize,
+			.height = mask->Ysize,
+		};
+		vips_rect_normalise(&dirty);
+		vips_rect_marginadjust(&dirty, 1);
+		save(client, &dirty);
+
+		vips_draw_mask(image, ink, n, mask, x, y, NULL);
+
+		tilesource_invalidate_area(tilesource, &dirty);
+	}
+}
+
+/* Copy a rect from the image into a memory image.
+ *
+ * area is normalised and clipped against the image size.
+ */
+VipsImage *
+tilesource_draw_copy(Tilesource *tilesource, VipsRect *area)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		vips_rect_normalise(area);
+		VipsRect range = {0, 0, image->Xsize, image->Ysize};
+		vips_rect_intersectrect(area, &range, area);
+
+		if (!vips_rect_isempty(area)) {
+			VipsImage *crop;
+			if (vips_crop(image, &crop,
+				area->left, area->top, area->width, area->height, NULL))
+				return NULL;
+
+			VipsImage *memory = vips_image_new_memory();
+			if (vips_image_write(crop, memory)) {
+				VIPS_UNREF(memory);
+				VIPS_UNREF(crop);
+				return NULL;
+			}
+			VIPS_UNREF(crop);
+
+			return memory;
+		}
+	}
+
+    return NULL;
+}
+
+/* Paste a rect back into the image.
+ */
+void
+tilesource_draw_paste(Tilesource *tilesource, VipsImage *paste, VipsRect *area)
+{
+	VipsImage *image;
+	if ((image = tilesource_get_base_image(tilesource))) {
+		vips_draw_image(image, paste, area->left, area->top, NULL);
+		tilesource_invalidate_area(tilesource, area);
+	}
+}
+

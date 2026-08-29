@@ -63,7 +63,7 @@ typedef struct _Tile {
 	gboolean valid;
 
 	GBytes *bytes;
-    GdkTexture *texture;
+	GdkTexture *texture;
 } Tile;
 
 typedef struct _TileClass {

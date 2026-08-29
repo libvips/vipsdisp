@@ -2,9 +2,11 @@
 
 <gresources>
   <gresource prefix="/org/libvips/vipsdisp">
+
     <file preprocess="xml-stripblanks">imageui.ui</file>
     <file preprocess="xml-stripblanks">imagewindow.ui</file>
     <file preprocess="xml-stripblanks">infobar.ui</file>
+    <file preprocess="xml-stripblanks">paintbox.ui</file>
     <file preprocess="xml-stripblanks">displaybar.ui</file>
     <file preprocess="xml-stripblanks">ientry.ui</file>
     <file preprocess="xml-stripblanks">tslider.ui</file>
@@ -14,5 +16,19 @@
     <file>imagedisplay.css</file>
     <file>saveoptions.css</file>
     <file>properties.css</file>
+
   </gresource>
+
+  <gresource prefix="/org/libvips/vipsdisp/icons/scalable/actions">
+    <file>pointer-symbolic.svg</file>
+    <file>brush-symbolic.svg</file>
+    <file>pencil-symbolic.svg</file>
+    <file>rectangle-symbolic.svg</file>
+    <file>circle-symbolic.svg</file>
+    <file>smudge-symbolic.svg</file>
+    <file>flood-symbolic.svg</file>
+    <file>text-symbolic.svg</file>
+    <file>dropper-symbolic.svg</file>
+  </gresource>
+
 </gresources>

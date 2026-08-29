@@ -27,7 +27,7 @@
 
 */
 
-#include "vipsdisp.h"
+#include "package.h"
 
 /*
 #define DEBUG_VERBOSE
@@ -93,13 +93,18 @@ static const int infobar_label_width[] = {
 	10, /* double complex */
 };
 
-/* Tilesource has a new image. We need a new number of band elements and
- * dimensions.
+/* We have a new image to display -- rebuild widgets.
  */
 static void
-infobar_tilesource_changed(Tilesource *tilesource, Infobar *infobar)
+infobar_new_image(Infobar *infobar)
 {
-	VipsImage *image = tilesource->image;
+	Tilesource *tilesource;
+	if (!(tilesource = imagewindow_get_tilesource(infobar->win)))
+		return;
+
+	VipsImage *image;
+	if (!(image = tilesource_get_base_image(tilesource)))
+		return;
 
 	GSList *p;
 	VipsBandFormat format;
@@ -110,7 +115,7 @@ infobar_tilesource_changed(Tilesource *tilesource, Infobar *infobar)
 	int i;
 
 #ifdef DEBUG
-	printf("infobar_tilesource_changed:\n");
+	printf("infobar_new_image:\n");
 #endif /*DEBUG*/
 
 	/* Remove all existing children of infobar->values.
@@ -222,20 +227,15 @@ infobar_get_pixel(void *a, void *b)
 	PixelUpdate *update = (PixelUpdate *) a;
 	VipsImage *image = update->image;
 
-	/* Block outside the image.
+	/* Clip (x, y) to the image dimensions. It might be a histogram, for
+	 * example.
 	 */
-	if (update->image_x >= 0 &&
-		update->image_y >= 0 &&
-		update->image_x < image->Xsize &&
-		update->image_y < image->Ysize)
-		/* Fetch from image, even though this can be very slow.
-		 * This is run in a bg thread, so speed should not matter too much.
-		 */
-		update->result = !vips_getpoint(image,
-				&update->vector, &update->n,
-				update->image_x, update->image_y,
-				"unpack_complex", TRUE,
-				NULL);
+	update->result = !vips_getpoint(image,
+		&update->vector, &update->n,
+		VIPS_CLIP(0, update->image_x, image->Xsize - 1),
+		VIPS_CLIP(0, update->image_y, image->Ysize - 1),
+		"unpack_complex", TRUE,
+		NULL);
 
 	g_idle_add(infobar_update_pixel_idle, update);
 }
@@ -245,24 +245,36 @@ static void
 infobar_update_pixel(Infobar *infobar,
 	Tilesource *tilesource, double image_x, double image_y)
 {
+#ifdef DEBUG
+	printf("infobar_update_pixel: %g x %g:\n", image_x, image_y);
+#endif /*DEBUG*/
+
+	/* We need to fetch pixels from base for histograms, from image
+	 * otherwise.
+	 */
+	VipsImage *base = tilesource_get_base_image(tilesource);
+	VipsImage *image = tilesource_get_image(tilesource);
+	VipsImage *selected = base->Type == VIPS_INTERPRETATION_HISTOGRAM ?
+		base : image;
+
 	if (!infobar->updating &&
-		tilesource->image) {
+		selected) {
 		infobar->updating = TRUE;
 
 		PixelUpdate *update = g_new0(PixelUpdate, 1);
 		update->infobar = infobar;
-		update->image = tilesource->image;
-
-		/* Currently in level0 image coordinates ... we will fetch from
-		 * tilesource->image, the current pyr layer.
-		 */
-		int factor = tilesource->image_width / tilesource->image->Xsize;
-		update->image_x = image_x / factor;
-		update->image_y = image_y / factor;
+		update->image = selected;
 
 		// must stay valid until we are done
 		g_object_ref(update->infobar);
 		g_object_ref(update->image);
+
+		/* Currently in level0 image coordinates ... we need to scale for the
+		 * selected image.
+		 */
+		int factor = tilesource->image_width / update->image->Xsize;
+		update->image_x = image_x / factor;
+		update->image_y = image_y / factor;
 
 		if (vips_thread_execute("pixel", infobar_get_pixel, update))
 			// if we can't run a bg task, we must free the update
@@ -305,32 +317,27 @@ infobar_status_update(Infobar *infobar)
 }
 
 static void
-infobar_status_changed(Imagewindow *win, Infobar *infobar)
+infobar_imagewindow_status_changed(Imagewindow *win, Infobar *infobar)
 {
 	if (!gtk_action_bar_get_revealed(GTK_ACTION_BAR(infobar->action_bar)) ||
 		!imagewindow_get_tilesource(infobar->win))
 		return;
 
 #ifdef DEBUG
-	printf("infobar_status_changed:\n");
+	printf("infobar_imagewindow_status_changed:\n");
 #endif /*DEBUG*/
 
 	infobar_status_update(infobar);
 }
 
-/* Imagewindow has a new tilesource.
- */
 static void
-infobar_imagewindow_changed(Imagewindow *win, Infobar *infobar)
+infobar_imagewindow_new_image(Imagewindow *win, Infobar *infobar)
 {
-	Tilesource *tilesource;
+#ifdef DEBUG
+	printf("infobar_imagewindow_new_image:\n");
+#endif /*DEBUG*/
 
-	if ((tilesource = imagewindow_get_tilesource(win))) {
-		g_signal_connect_object(tilesource, "changed",
-			G_CALLBACK(infobar_tilesource_changed), infobar, 0);
-		g_signal_connect_object(tilesource, "page-changed",
-			G_CALLBACK(infobar_status_changed), infobar, 0);
-	}
+	infobar_new_image(infobar);
 }
 
 static void
@@ -340,11 +347,10 @@ infobar_set_imagewindow(Infobar *infobar, Imagewindow *win)
 	 */
 	infobar->win = win;
 
-	g_signal_connect_object(win, "changed",
-		G_CALLBACK(infobar_imagewindow_changed), infobar, 0);
-
 	g_signal_connect_object(win, "status-changed",
-		G_CALLBACK(infobar_status_changed), infobar, 0);
+		G_CALLBACK(infobar_imagewindow_status_changed), infobar, 0);
+	g_signal_connect_object(win, "new-image",
+		G_CALLBACK(infobar_imagewindow_new_image), infobar, 0);
 }
 
 static void

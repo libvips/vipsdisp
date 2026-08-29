@@ -27,7 +27,7 @@
 
  */
 
-#include "vipsdisp.h"
+#include "package.h"
 
 /*
 #define DEBUG_VERBOSE
@@ -127,13 +127,14 @@ enum {
 	PROP_X,
 	PROP_Y,
 
+	/* Read out display density with this.
+	 */
+	PROP_PIXEL_SIZE,
+
 	/* Draw snapshot in debug mode.
 	 */
 	PROP_DEBUG,
 
-	/* Read out display density with this.
-	 */
-	PROP_PIXEL_SIZE,
 };
 
 enum {
@@ -387,20 +388,17 @@ imagedisplay_tilecache_tiles_changed(Tilecache *tilecache,
 
 static void
 imagedisplay_tilecache_area_changed(Tilecache *tilecache,
-       VipsRect *dirty, int z, Imagedisplay *imagedisplay)
+	VipsRect *dirty, int z, Imagedisplay *imagedisplay)
 {
 #ifdef DEBUG_VERBOSE
-       printf("imagedisplay_tilecache_area_changed: "
-                  "at %d x %d, size %d x %d, z = %d\n",
-               dirty->left, dirty->top,
-               dirty->width, dirty->height,
-               z);
+	printf("imagedisplay_tilecache_area_changed: "
+		"at %d x %d, size %d x %d, z = %d\n",
+		dirty->left, dirty->top,
+		dirty->width, dirty->height,
+		z);
 #endif /*DEBUG_VERBOSE*/
 
-       /* Sadly, gtk4 only has this and we can't redraw areas. Perhaps we
-        * could just regenerate part of the snapshot?
-        */
-       gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
+	gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 }
 
 static void
@@ -418,7 +416,7 @@ imagedisplay_set_tilesource(Imagedisplay *imagedisplay, Tilesource *tilesource)
 			"tilesource", tilesource,
 			NULL);
 
-	/* Do initial paint.
+	/* Initial paint.
 	 */
 	gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 }
@@ -466,6 +464,10 @@ imagedisplay_property_name(guint prop_id)
 
 	case PROP_Y:
 		return "Y";
+		break;
+
+	case PROP_PIXEL_SIZE:
+		return "PIXEL_SIZE";
 		break;
 
 	case PROP_DEBUG:
@@ -578,11 +580,6 @@ imagedisplay_set_property(GObject *object,
 		gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 		break;
 
-	case PROP_DEBUG:
-		imagedisplay->debug = g_value_get_boolean(value);
-		gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
-		break;
-
 	case PROP_PIXEL_SIZE:
 		d = g_value_get_double(value);
 		if (imagedisplay->pixel_size != d) {
@@ -590,6 +587,11 @@ imagedisplay_set_property(GObject *object,
 			imagedisplay_layout(imagedisplay);
 			gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 		}
+		break;
+
+	case PROP_DEBUG:
+		imagedisplay->debug = g_value_get_boolean(value);
+		gtk_widget_queue_draw(GTK_WIDGET(imagedisplay));
 		break;
 
 	default:
@@ -647,12 +649,12 @@ imagedisplay_get_property(GObject *object,
 		g_value_set_double(value, imagedisplay->y);
 		break;
 
-	case PROP_DEBUG:
-		g_value_set_boolean(value, imagedisplay->debug);
-		break;
-
 	case PROP_PIXEL_SIZE:
 		g_value_set_double(value, imagedisplay->pixel_size);
+		break;
+
+	case PROP_DEBUG:
+		g_value_set_boolean(value, imagedisplay->debug);
 		break;
 
 	default:
@@ -677,7 +679,8 @@ imagedisplay_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 	 */
 	gtk_snapshot_push_clip(snapshot,
 		&GRAPHENE_RECT_INIT(0, 0,
-			gtk_widget_get_width(widget), gtk_widget_get_height(widget)));
+			gtk_widget_get_width(widget),
+			gtk_widget_get_height(widget)));
 
 	gtk_snapshot_save(snapshot);
 
@@ -703,15 +706,15 @@ imagedisplay_snapshot(GtkWidget *widget, GtkSnapshot *snapshot)
 	if (imagedisplay->tilecache &&
 		imagedisplay->tilecache->n_levels > 0)
 		tilecache_snapshot(imagedisplay->tilecache, snapshot,
-			imagedisplay->scale / pixel_size, 
-			imagedisplay->x / pixel_size, 
+			imagedisplay->scale / pixel_size,
+			imagedisplay->x / pixel_size,
 			imagedisplay->y / pixel_size,
 			&paint, imagedisplay->debug);
 
-	// undo snap and scale
+	// back to a non-scaled snapshot
 	gtk_snapshot_restore(snapshot);
 
-	// draw any overlays back in the regular coordinate space
+	// draw any overlays
 	imagedisplay_overlay_snapshot(imagedisplay, snapshot);
 
 	// end of clip
@@ -853,18 +856,18 @@ imagedisplay_class_init(ImagedisplayClass *class)
 			-VIPS_MAX_COORD, VIPS_MAX_COORD, 0,
 			G_PARAM_READWRITE));
 
-	g_object_class_install_property(gobject_class, PROP_DEBUG,
-		g_param_spec_boolean("debug",
-			_("Debug"),
-			_("Render snapshot in debug mode"),
-			FALSE,
-			G_PARAM_READWRITE));
-
 	g_object_class_install_property(gobject_class, PROP_PIXEL_SIZE,
 		g_param_spec_double("pixel-size",
 			_("Pixel size"),
 			_("Size of hardware display pixels in gtk coordinates"),
 			0.0, 10.0, 0.0,
+			G_PARAM_READWRITE));
+
+	g_object_class_install_property(gobject_class, PROP_DEBUG,
+		g_param_spec_boolean("debug",
+			_("Debug"),
+			_("Render snapshot in debug mode"),
+			FALSE,
 			G_PARAM_READWRITE));
 
 	g_object_class_override_property(gobject_class,
@@ -941,4 +944,10 @@ imagedisplay_gtk_to_image(Imagedisplay *imagedisplay,
 
 	*x_image = VIPS_CLIP(0, *x_image, imagedisplay->image_rect.width - 1);
 	*y_image = VIPS_CLIP(0, *y_image, imagedisplay->image_rect.height - 1);
+}
+
+double
+imagedisplay_get_scale(Imagedisplay *imagedisplay)
+{
+	return imagedisplay->scale;
 }

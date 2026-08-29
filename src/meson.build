@@ -1,76 +1,62 @@
 marshal = gnome.genmarshal(
-    'vipsdispmarshal',
-    prefix: 'vipsdisp',
-    sources: 'gtk/vipsdispmarshal.list',
+  'vipsdispmarshal',
+  prefix: 'app',
+  sources: 'vipsdispmarshal.list',
 )
 
 resources = gnome.compile_resources(
-    'vipsdisp-gresources',
-    'gtk/vipsdisp.gresources.xml',
-    source_dir: 'gtk',
+  'vipsdisp-gresources',
+  'gtk/vipsdisp.gresources.xml',
+  source_dir: 'gtk',
 )
 
+# compile in an icon for a windows exe
 if host_machine.system() == 'windows'
   windows = import('windows')
   resources += windows.compile_resources(
-      'vipsdisp.rc',
-      depend_files: 'vipsdisp.ico',
+    'vipsdisp.rc',
+    depend_files: 'vipsdisp.ico',
   )
 endif
 
-headers = files (
-    'displaybar.h',
-    'fuzzy.h',
-    'gtkutil.h',
-    'ientry.h',
-    'imagedisplay.h',
-    'imageui.h',
-    'imagewindow.h',
-    'infobar.h',
-    'properties.h',
-    'saveoptions.h',
-    'tilecache.h',
-    'tile.h',
-    'tilesource.h',
-    'tslider.h',
-    'vipsdispapp.h',
-    'vipsdisp.h',
-    'vipsdispmarshal.h',
+# headers for enum scanning
+headers = files(
+  'tilesource.h',
+  'tilecache.h',
+  'paintbox.h',
 )
 
-sources = files (
-    'displaybar.c',
-    'fuzzy.c',
-    'gtkutil.c',
-    'ientry.c',
-    'imagedisplay.c',
-    'imageui.c',
-    'imagewindow.c',
-    'infobar.c',
-    'main.c',
-    'properties.c',
-    'saveoptions.c',
-    'tile.c',
-    'tilecache.c',
-    'tilesource.c',
-    'tslider.c',
-    'vipsdispapp.c',
+sources = files(
+  'app.c',
+  'displaybar.c',
+  'draw_mask.c',
+  'fuzzy.c',
+  'gtkutil.c',
+  'ientry.c',
+  'imagedisplay.c',
+  'imageui.c',
+  'imagewindow.c',
+  'infobar.c',
+  'paintbox.c',
+  'main.c',
+  'properties.c',
+  'saveoptions.c',
+  'tile.c',
+  'tilecache.c',
+  'tilesource.c',
+  'tslider.c',
 )
 
 enumtypes = gnome.mkenums(
-    'enumtypes',
-    sources: headers,
-    h_template: 'enumtypes.h.in',
-    c_template: 'enumtypes.c.in',
+  'enumtypes',
+  sources: headers,
+  h_template: 'enumtypes.h.in',
+  c_template: 'enumtypes.c.in',
 )
 
-executable('vipsdisp', [
-        enumtypes,
-        marshal,
-        resources,
-        sources,
-    ],
-    dependencies: vipsdisp_deps,
-    win_subsystem: 'windows',
-    install: true,
+executable('vipsdisp',
+  sources: [enumtypes, marshal, resources, sources],
+  dependencies: vipsdisp_deps,
+  win_subsystem: 'windows',
+  install: true,
 )

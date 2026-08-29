@@ -1,5 +1,5 @@
-#ifndef __VIPSDISP_H
-#define __VIPSDISP_H
+#ifndef __PACKAGE_H
+#define __PACKAGE_H
 
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define APP_PATH "/org/libvips/vipsdisp"
+#define APP_PATH "/org/libvips/" PACKAGE
 
 #include <gtk/gtk.h>
 
@@ -18,7 +18,7 @@
 /* i18n placeholder.
  */
 #define _(S) (S)
-#define GETTEXT_PACKAGE "vipsdisp"
+#define GETTEXT_PACKAGE PACKAGE
 
 /* The tile size for image rendering.
  */
@@ -38,22 +38,29 @@
 	} \
 	G_STMT_END
 
+int draw_mask(VipsImage *image, VipsPel *ink, VipsImage *mask, int x, int y);
+
+// various forward typdefs
+
+typedef struct _Imageui Imageui;
+
+#include "tile.h"
+#include "app.h"
 #include "enumtypes.h"
 #include "gtkutil.h"
-#include "ientry.h"
-#include "tslider.h"
-#include "vipsdispapp.h"
-#include "vipsdispmarshal.h"
-#include "tile.h"
 #include "tilesource.h"
 #include "tilecache.h"
 #include "imagedisplay.h"
+#include "ientry.h"
+#include "tslider.h"
 #include "imageui.h"
 #include "imagewindow.h"
 #include "infobar.h"
+#include "paintbox.h"
 #include "displaybar.h"
 #include "saveoptions.h"
 #include "properties.h"
 #include "fuzzy.h"
+#include "vipsdispmarshal.h"
 
-#endif /* __VIPSDISP_H */
+#endif /*__PACKAGE_H*/

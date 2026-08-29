@@ -31,15 +31,16 @@
 #define __IMAGEDISPLAY_H
 
 #define IMAGEDISPLAY_TYPE (imagedisplay_get_type())
-#define IMAGEDISPLAY NIP4_IMAGEDISPLAY
+#define IMAGEDISPLAY (APP_IMAGEDISPLAY)
 
 G_DECLARE_FINAL_TYPE(Imagedisplay, imagedisplay,
-	NIP4, IMAGEDISPLAY, GtkDrawingArea)
+	APP, IMAGEDISPLAY, GtkDrawingArea)
 
 void imagedisplay_image_to_gtk(Imagedisplay *imagedisplay,
 	double x_image, double y_image, double *x_gtk, double *y_gtk);
 void imagedisplay_gtk_to_image(Imagedisplay *imagedisplay,
 	double x_gtk, double y_gtk, double *x_image, double *y_image);
+double imagedisplay_get_scale(Imagedisplay *imagedisplay);
 
 Imagedisplay *imagedisplay_new(Tilesource *tilesource);
 

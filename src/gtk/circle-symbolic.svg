@@ -1,0 +1,23 @@
+<svg
+        xmlns='http://www.w3.org/2000/svg'
+        xmlns:svg='http://www.w3.org/2000/svg'
+        fill='none'
+        width='800px'
+        height='800px'
+        viewBox='0 0 24 24'
+        class='transparent-fill'>
+  <path
+          fill='none'
+          fill-rule='nonzero'
+          stroke='url(#gpa:foreground) rgb(0,0,0)'
+          stroke-opacity='1'
+          stroke-width='2'
+          stroke-linecap='round'
+          stroke-linejoin='round'
+          stroke-miterlimit='4'
+          d='M 21 12 C 21 16.9706, 16.9706 21, 12 21 C 7.02944 21, 3 16.9706, 3 12 C 3 7.02944, 7.02944 3, 12 3 C 16.9706 3, 21 7.02944, 21 12 Z'
+          gpa:stroke-minwidth='0.5'
+          gpa:stroke-maxwidth='3'
+          class='transparent-fill foreground-stroke'>
+  </path>
+</svg>

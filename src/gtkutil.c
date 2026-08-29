@@ -21,7 +21,12 @@
 
  */
 
-#include "vipsdisp.h"
+#include "package.h"
+
+// set when we're processing some events to update the GUI ... used to sanity
+// check eg. reduce (we mustn't call reduce from inside the nested loop,
+// it'll crash into the main reduce thread)
+gboolean in_update = FALSE;
 
 void
 set_glabel(GtkWidget *label, const char *fmt, ...)
@@ -194,6 +199,62 @@ copy_state(GtkWidget *to, GtkWidget *from, const char *name)
 		change_state(to, name, state);
 }
 
+void
+set_state_bool(GtkWidget *to, const char *name, gboolean value)
+{
+	GVariant *state = g_variant_new_boolean(value);
+
+	change_state(to, name, state);
+}
+
+void
+set_state_double(GtkWidget *to, const char *name, double value)
+{
+	GVariant *state = g_variant_new_double(value);
+
+	change_state(to, name, state);
+}
+
+void
+set_state_int(GtkWidget *to, const char *name, int value)
+{
+	GVariant *state = g_variant_new_int32(value);
+
+	change_state(to, name, state);
+}
+
+void
+set_state_enum(GtkWidget *to, const char *name, const char *value)
+{
+	GVariant *state = g_variant_new_string(value);
+
+	change_state(to, name, state);
+}
+
+gboolean
+get_state_bool(GtkWidget *from, const char *name)
+{
+	g_autoptr(GVariant) state = get_state(from, name);
+
+	return g_variant_get_boolean(state);
+}
+
+double
+get_state_double(GtkWidget *from, const char *name)
+{
+	g_autoptr(GVariant) state = get_state(from, name);
+
+	return g_variant_get_double(state);
+}
+
+int
+get_state_int(GtkWidget *from, const char *name)
+{
+	g_autoptr(GVariant) state = get_state(from, name);
+
+	return g_variant_get_int32(state);
+}
+
 /* A 'safe' way to run a few events.
  */
 void
@@ -207,13 +268,18 @@ process_events(void)
 	/* Block too much recursion. 0 is from the top-level, 1 is from a
 	 * callback, we don't want any more than that.
 	 */
-	if (g_main_depth() < 2) {
+	if (!in_update &&
+		g_main_depth() < 2) {
 		int n;
+
+		in_update = TRUE;
 
 		for (n = 0; n < max_events &&
 			 g_main_context_iteration(NULL, FALSE);
 			 n++)
 			;
+
+		in_update = FALSE;
 	}
 }
 
@@ -284,8 +350,8 @@ alert_yesno_cb(GObject *source_object,
 	GAsyncResult *result, gpointer user_data)
 {
 	GtkAlertDialog *alert = GTK_ALERT_DIALOG(source_object);
-	GtkWindow *window = g_object_get_data(G_OBJECT(alert), "nip4-window");
-	Yesno yesno = g_object_get_data(G_OBJECT(alert), "nip4-yesno");
+	GtkWindow *window = g_object_get_data(G_OBJECT(alert), "app-window");
+	Yesno yesno = g_object_get_data(G_OBJECT(alert), "app-yesno");
 	int choice = gtk_alert_dialog_choose_finish(alert, result, NULL);
 
 	if (choice == 1)
@@ -311,21 +377,21 @@ alert_yesno(GtkWindow *window, Yesno yesno, void *user_data,
 	gtk_alert_dialog_set_detail(alert, buf);
 	gtk_alert_dialog_set_buttons(alert, labels);
 	gtk_alert_dialog_set_modal(alert, TRUE);
-	g_object_set_data(G_OBJECT(alert), "nip4-window", window);
-	g_object_set_data(G_OBJECT(alert), "nip4-yesno", yesno);
+	g_object_set_data(G_OBJECT(alert), "app-window", window);
+	g_object_set_data(G_OBJECT(alert), "app-yesno", yesno);
 	gtk_alert_dialog_choose(alert, window, NULL, alert_yesno_cb, user_data);
 }
 
 char *
 text_view_get_text(GtkTextView *text)
 {
-    GtkTextBuffer *buffer = gtk_text_view_get_buffer(text);
+	GtkTextBuffer *buffer = gtk_text_view_get_buffer(text);
 
-    GtkTextIter start;
-    GtkTextIter end;
+	GtkTextIter start;
+	GtkTextIter end;
 
-    gtk_text_buffer_get_start_iter(buffer, &start);
-    gtk_text_buffer_get_end_iter(buffer, &end);
+	gtk_text_buffer_get_start_iter(buffer, &start);
+	gtk_text_buffer_get_end_iter(buffer, &end);
 
 	return gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
 }
@@ -333,27 +399,27 @@ text_view_get_text(GtkTextView *text)
 void
 text_view_set_text(GtkTextView *text, const char *str, gboolean editable)
 {
-    GtkTextBuffer *buffer = gtk_text_view_get_buffer(text);
+	GtkTextBuffer *buffer = gtk_text_view_get_buffer(text);
 
-    gtk_text_buffer_set_text(buffer, str ? str : "", -1);
+	gtk_text_buffer_set_text(buffer, str ? str : "", -1);
 
-    gtk_text_view_set_editable(text, editable);
-    gtk_text_view_set_cursor_visible(text, editable);
+	gtk_text_view_set_editable(text, editable);
+	gtk_text_view_set_cursor_visible(text, editable);
 }
 
 void
 text_view_select_text(GtkTextView *text, int start, int end)
 {
-    GtkTextBuffer *buffer = gtk_text_view_get_buffer(text);
+	GtkTextBuffer *buffer = gtk_text_view_get_buffer(text);
 
-    GtkTextMark *mark = gtk_text_buffer_get_insert(buffer);
-    GtkTextIter start_iter;
-    GtkTextIter end_iter;
+	GtkTextMark *mark = gtk_text_buffer_get_insert(buffer);
+	GtkTextIter start_iter;
+	GtkTextIter end_iter;
 
-    gtk_text_buffer_get_iter_at_offset(buffer, &start_iter, start);
-    gtk_text_buffer_get_iter_at_offset(buffer, &end_iter, end);
-    gtk_text_buffer_select_range(buffer, &start_iter, &end_iter);
-    gtk_text_view_scroll_mark_onscreen(text, mark);
+	gtk_text_buffer_get_iter_at_offset(buffer, &start_iter, start);
+	gtk_text_buffer_get_iter_at_offset(buffer, &end_iter, end);
+	gtk_text_buffer_select_range(buffer, &start_iter, &end_iter);
+	gtk_text_view_scroll_mark_onscreen(text, mark);
 }
 
 /* Cohen–Sutherland line clipping, see:
@@ -363,10 +429,10 @@ text_view_select_text(GtkTextView *text, int start, int end)
  */
 
 static const int INSIDE = 0b0000;
-static const int LEFT   = 0b0001;
-static const int RIGHT  = 0b0010;
+static const int LEFT	= 0b0001;
+static const int RIGHT	= 0b0010;
 static const int BOTTOM = 0b0100;
-static const int TOP    = 0b1000;
+static const int TOP	= 0b1000;
 
 // Compute the bit code for a point (x, y) using the clip rectangle
 // rect
@@ -430,9 +496,9 @@ line_clip(VipsRect *rect,
 
 			// Now find the intersection point;
 			// use formulas:
-			//   slope = (y1 - y0) / (x1 - x0)
-			//   x = x0 + (1 / slope) * (ym - y0), where ym is ymin or ymax
-			//   y = y0 + slope * (xm - x0), where xm is xmin or xmax
+			//	 slope = (y1 - y0) / (x1 - x0)
+			//	 x = x0 + (1 / slope) * (ym - y0), where ym is ymin or ymax
+			//	 y = y0 + slope * (xm - x0), where xm is xmin or xmax
 			// No need to worry about divide-by-zero because, in each case, the
 			// outcode bit being tested guarantees the denominator is non-zero
 
@@ -512,6 +578,32 @@ value_to_filename(const GValue *value, ValueToFilenameFn fn, void *user_data)
 		if (!fn(strip_path, user_data))
 			return FALSE;
 	}
+#ifdef NIP4
+	else if (G_VALUE_TYPE(value) == GDK_TYPE_TEXTURE) {
+		GdkTexture *texture = g_value_get_object(value);
+
+		Imageinfo *ii =
+			imageinfo_new_from_texture(main_imageinfogroup, NULL, texture);
+		if (!ii)
+			return FALSE;
+
+		char filename[VIPS_PATH_MAX];
+		if (!temp_name(filename, NULL, "v"))
+			return FALSE;
+		if (vips_image_write_to_file(ii->image, filename, NULL))
+			return FALSE;
+
+		Imageinfo *temp =
+			imageinfo_new_input(main_imageinfogroup, NULL, NULL, filename);
+		imageinfo_set_delete_on_close(temp);
+		// will be unreffed on the next GC, so fn() below will need to
+		// grab it
+		MANAGED_UNREF(temp);
+
+		if (!fn(filename, user_data))
+			return FALSE;
+	}
+#endif /*NIP4*/
 
 	return TRUE;
 }
@@ -537,4 +629,3 @@ weakref_set(GObject **pointer, GObject *object)
 }
 
 #define WEAKREF_SET(A, B) weakref_set((GObject **) &(A), (GObject *) (B));
-

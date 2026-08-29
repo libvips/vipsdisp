@@ -42,14 +42,33 @@
 #define IMAGEUI_GET_CLASS(obj) \
 	(G_TYPE_INSTANCE_GET_CLASS((obj), IMAGEUI_TYPE, ImageuiClass))
 
-G_DECLARE_FINAL_TYPE(Imageui, imageui, NIP4, IMAGEUI, GtkWidget)
+GType imageui_get_type(void);
+
+typedef gboolean (*ImageuiEventFn)(GObject *object,
+	const char *signal_name,
+	double x, double y, int keyval, int keycode, GdkModifierType state);
+void imageui_client_add(Imageui *imageui,
+	GObject *object, int priority, ImageuiEventFn callback);
+void imageui_client_remove(Imageui *imageui, GObject *object);
+
+#ifdef NIP4
+void imageui_set_cursor(Imageui *imageui, RegionviewResize resize);
+void imageui_add_regionview(Imageui *imageui, Regionview *regionview);
+void imageui_remove_regionview(Imageui *imageui, Regionview *regionview);
+iImage *imageui_get_iimage(Imageui *imageui);
+gboolean imageui_snap_point(Imageui *imageui, int x, int y, int *sx, int *sy);
+gboolean imageui_snap_rect(Imageui *imageui, VipsRect *in, VipsRect *out);
+Regionview *imageui_pick_regionview(Imageui *imageui, int x, int y);
+#endif /*NIP4*/
 
 void imageui_queue_draw(Imageui *imageui);
-
 Tilesource *imageui_get_tilesource(Imageui *imageui);
+GtkWidget *imageui_get_imagedisplay(Imageui *imageui);
 double imageui_get_scale(Imageui *imageui);
+void imageui_get_mouse_position_gtk(Imageui *imageui,
+	double *x_gtk, double *y_gtk);
 void imageui_get_mouse_position(Imageui *imageui,
-	double *image_x, double *image_y);
+	double *x_image, double *y_image);
 
 double imageui_get_zoom(Imageui *imageui);
 void imageui_bestfit(Imageui *imageui);
@@ -58,7 +77,12 @@ void imageui_magout(Imageui *imageui);
 void imageui_oneone(Imageui *imageui);
 gboolean imageui_scale(Imageui *imageui);
 
+#ifdef NIP4
+Imageui *imageui_new(Tilesource *tilesource, iImage *iimage);
+#else
 Imageui *imageui_new(Tilesource *tilesource);
+#endif /*NIP4*/
+
 Imageui *imageui_duplicate(Tilesource *tilesource, Imageui *old_imageui);
 
 void imageui_image_to_gtk(Imageui *imageui,
@@ -67,5 +91,7 @@ void imageui_gtk_to_image(Imageui *imageui,
 	double x_gtk, double y_gtk, double *x_image, double *y_image);
 void imageui_image_to_gtk_rect(Imageui *imageui, VipsRect *in, VipsRect *out);
 void imageui_gtk_to_image_rect(Imageui *imageui, VipsRect *in, VipsRect *out);
+
+gboolean imageui_make_paintable(Imageui *imageui);
 
 #endif /* __IMAGEUI_H */

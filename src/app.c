@@ -1,18 +1,18 @@
-#include "vipsdisp.h"
+#include "package.h"
 
-struct _VipsdispApp {
+struct _App {
 	GtkApplication parent;
 };
 
-G_DEFINE_TYPE(VipsdispApp, vipsdisp_app, GTK_TYPE_APPLICATION);
+G_DEFINE_TYPE(App, app, GTK_TYPE_APPLICATION);
 
 static void
-vipsdisp_app_init(VipsdispApp *app)
+app_init(App *app)
 {
 }
 
 static void
-vipsdisp_app_activate(GApplication *app)
+app_activate(GApplication *app)
 {
 	Imagewindow *win;
 
@@ -21,21 +21,21 @@ vipsdisp_app_activate(GApplication *app)
 }
 
 static void
-vipsdisp_app_quit_activated(GSimpleAction *action,
+app_quit_activated(GSimpleAction *action,
 	GVariant *parameter, gpointer app)
 {
 	g_application_quit(G_APPLICATION(app));
 }
 
 static void
-vipsdisp_app_new_activated(GSimpleAction *action,
+app_new_activated(GSimpleAction *action,
 	GVariant *parameter, gpointer user_data)
 {
-	vipsdisp_app_activate(G_APPLICATION(user_data));
+	app_activate(G_APPLICATION(user_data));
 }
 
 static Imagewindow *
-vipsdisp_app_win(VipsdispApp *app)
+app_win(App *app)
 {
 	GList *windows = gtk_application_get_windows(GTK_APPLICATION(app));
 
@@ -46,14 +46,16 @@ vipsdisp_app_win(VipsdispApp *app)
 }
 
 static void
-vipsdisp_app_about_activated(GSimpleAction *action,
+app_about_activated(GSimpleAction *action,
 	GVariant *parameter, gpointer user_data)
 {
-	VipsdispApp *app = APP(user_data);
-	Imagewindow *win = vipsdisp_app_win(app);
+	App *app = APP(user_data);
+	Imagewindow *win = app_win(app);
 
 	static const char *authors[] = {
 		"jcupitt",
+		"kleisauke",
+		"jpadfield",
 		"angstyloop",
 		"TingPing",
 		"earboxer",
@@ -61,7 +63,7 @@ vipsdisp_app_about_activated(GSimpleAction *action,
 	};
 
 #ifdef DEBUG
-	printf("vipsdisp_app_about_activated:\n");
+	printf("app_about_activated:\n");
 #endif /*DEBUG*/
 
 	gtk_show_about_dialog(win ? GTK_WINDOW(win) : NULL,
@@ -78,17 +80,14 @@ vipsdisp_app_about_activated(GSimpleAction *action,
 }
 
 static GActionEntry app_entries[] = {
-	{ "quit", vipsdisp_app_quit_activated },
-	{ "new", vipsdisp_app_new_activated },
-	{ "about", vipsdisp_app_about_activated },
+	{ "quit", app_quit_activated },
+	{ "new", app_new_activated },
+	{ "about", app_about_activated },
 };
 
 static void
-vipsdisp_app_startup(GApplication *app)
+app_startup(GApplication *app)
 {
-	int i;
-	GtkSettings *settings;
-
 	struct {
 		const gchar *action_and_target;
 		const gchar *accelerators[2];
@@ -98,6 +97,8 @@ vipsdisp_app_startup(GApplication *app)
 
 		{ "win.copy", { "<Primary>c", NULL } },
 		{ "win.paste", { "<Primary>v", NULL } },
+		{ "win.undo", { "<Primary>z", NULL } },
+		{ "win.redo", { "<Primary>y", NULL } },
 		{ "win.duplicate", { "<Primary>d", NULL } },
 		{ "win.close", { "<Primary>w", NULL } },
 		{ "win.replace", { "<Primary>o", NULL } },
@@ -111,12 +112,18 @@ vipsdisp_app_startup(GApplication *app)
 		{ "win.properties", { "<Alt>Return", NULL } },
 	};
 
-	G_APPLICATION_CLASS(vipsdisp_app_parent_class)->startup(app);
+	G_APPLICATION_CLASS(app_parent_class)->startup(app);
+
+	/* Add our custom icons to the theme.
+	 */
+	GtkIconTheme *theme =
+		gtk_icon_theme_get_for_display(gdk_display_get_default());
+	gtk_icon_theme_add_resource_path(theme, "/org/libvips/vipsdisp/icons");
 
 	/* Image display programs are supposed to default to a dark theme,
 	 * according to the HIG.
 	 */
-	settings = gtk_settings_get_default();
+	GtkSettings *settings = gtk_settings_get_default();
 	g_object_set(settings,
 		"gtk-application-prefer-dark-theme", TRUE,
 		NULL);
@@ -128,8 +135,7 @@ vipsdisp_app_startup(GApplication *app)
 	gtk_css_provider_load_from_resource(provider, APP_PATH "/properties.css");
 	gtk_css_provider_load_from_resource(provider, APP_PATH "/imagedisplay.css");
 	gtk_style_context_add_provider_for_display(gdk_display_get_default(),
-		GTK_STYLE_PROVIDER(provider),
-		GTK_STYLE_PROVIDER_PRIORITY_FALLBACK);
+		GTK_STYLE_PROVIDER(provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
 	/* Build our classes.
 	 */
@@ -139,20 +145,19 @@ vipsdisp_app_startup(GApplication *app)
 	IENTRY_TYPE;
 	TSLIDER_TYPE;
 	INFOBAR_TYPE;
+	PAINTBOX_TYPE;
 	PROPERTIES_TYPE;
 
 	g_action_map_add_action_entries(G_ACTION_MAP(app),
-		app_entries, G_N_ELEMENTS(app_entries),
-		app);
+		app_entries, G_N_ELEMENTS(app_entries), app);
 
-	for (i = 0; i < G_N_ELEMENTS(accels); i++)
+	for (int i = 0; i < G_N_ELEMENTS(accels); i++)
 		gtk_application_set_accels_for_action(GTK_APPLICATION(app),
 			accels[i].action_and_target, accels[i].accelerators);
 }
 
 static void
-vipsdisp_app_open(GApplication *app,
-	GFile **files, int n_files, const char *hint)
+app_open(GApplication *app, GFile **files, int n_files, const char *hint)
 {
 	Imagewindow *win = imagewindow_new(APP(app));
 
@@ -161,34 +166,34 @@ vipsdisp_app_open(GApplication *app,
 }
 
 static void
-vipsdisp_app_shutdown(GApplication *app)
+app_shutdown(GApplication *app)
 {
 	Imagewindow *win;
 
 #ifdef DEBUG
-	printf("vipsdisp_app_shutdown:\n");
+	printf("app_shutdown:\n");
 #endif /*DEBUG*/
 
 	/* Force down all our windows ... this will not happen automatically
 	 * on _quit().
 	 */
-	while ((win = vipsdisp_app_win(APP(app))))
+	while ((win = app_win(APP(app))))
 		gtk_window_destroy(GTK_WINDOW(win));
 
-	G_APPLICATION_CLASS(vipsdisp_app_parent_class)->shutdown(app);
+	G_APPLICATION_CLASS(app_parent_class)->shutdown(app);
 }
 
 static void
-vipsdisp_app_class_init(VipsdispAppClass *class)
+app_class_init(AppClass *class)
 {
-	G_APPLICATION_CLASS(class)->startup = vipsdisp_app_startup;
-	G_APPLICATION_CLASS(class)->activate = vipsdisp_app_activate;
-	G_APPLICATION_CLASS(class)->open = vipsdisp_app_open;
-	G_APPLICATION_CLASS(class)->shutdown = vipsdisp_app_shutdown;
+	G_APPLICATION_CLASS(class)->startup = app_startup;
+	G_APPLICATION_CLASS(class)->activate = app_activate;
+	G_APPLICATION_CLASS(class)->open = app_open;
+	G_APPLICATION_CLASS(class)->shutdown = app_shutdown;
 }
 
-VipsdispApp *
-vipsdisp_app_new(void)
+App *
+app_new(void)
 {
 	return g_object_new(APP_TYPE,
 		"application-id", APPLICATION_ID,

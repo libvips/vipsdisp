@@ -58,6 +58,9 @@
 #define PARENT_CLASS_DYNAMIC(OBJECT) \
 	(g_type_class_peek(g_type_parent(G_TYPE_FROM_INSTANCE(OBJECT))))
 
+// TRUE for in a nested mainloop
+extern gboolean in_update;
+
 void set_glabel(GtkWidget *label, const char *fmt, ...);
 void set_glabel1(GtkWidget *label, const char *fmt, ...);
 void set_gentryv(GtkWidget *edit, const char *fmt, va_list ap);
@@ -73,6 +76,15 @@ void set_state(GtkWidget *to, GSettings *settings, const char *name);
 GVariant *get_state(GtkWidget *widget, const char *name);
 void copy_state(GtkWidget *to, GtkWidget *from, const char *name);
 
+void set_state_bool(GtkWidget *to, const char *name, gboolean value);
+void set_state_double(GtkWidget *to, const char *name, double value);
+void set_state_int(GtkWidget *to, const char *name, int value);
+void set_state_enum(GtkWidget *to, const char *name, const char *value);
+
+gboolean get_state_bool(GtkWidget *from, const char *name);
+double get_state_double(GtkWidget *from, const char *name);
+int get_state_int(GtkWidget *from, const char *name);
+
 void process_events(void);
 
 void block_scroll(GtkWidget *widget);
@@ -85,8 +97,6 @@ void action_radio(GSimpleAction *action,
 	GVariant *parameter, gpointer user_data);
 
 int get_dpi(void);
-
-G_DEFINE_AUTOPTR_CLEANUP_FUNC(VipsRect, g_free);
 
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(cairo_t, cairo_destroy)
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(cairo_surface_t, cairo_surface_destroy)

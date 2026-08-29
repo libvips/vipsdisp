@@ -69,16 +69,21 @@ struct _Imagewindow {
 	GtkWidget *displaybar;
 	GtkWidget *info_bar;
 	GtkWidget *paintbox;
+
+#ifdef NIP4
 	GtkWidget *region_menu;
+#endif /*NIP4*/
 
 	/* The set of active images in the stack right now. These are not
 	 * references.
 	 */
 	GSList *active;
 
+#ifdef NIP4
 	/* Set on menu popup on a regionview.
 	 */
 	View *action_view;
+#endif /*NIP4*/
 
 	GSettings *settings;
 
@@ -410,11 +415,13 @@ imagewindow_get_imageui(Imagewindow *win)
 	return win ? win->imageui : NULL;
 }
 
+#ifdef NIP4
 iImage *
 imagewindow_get_iimage(Imagewindow *win)
 {
 	return win ? win->iimage : NULL;
 }
+#endif /*NIP4*/
 
 static void
 imagewindow_reset_view(Imagewindow *win)
@@ -517,8 +524,10 @@ imagewindow_imageui_set_visible(Imagewindow *win, Imageui *imageui)
 	Tilesource *new_tilesource =
 		imageui ? imageui_get_tilesource(imageui) : NULL;
 
+#ifdef NIP4
 	char str[256];
 	VipsBuf buf = VIPS_BUF_STATIC(str);
+#endif /*NIP4*/
 
 	VipsImage *image;
 
@@ -704,6 +713,7 @@ imagewindow_copy_action(GSimpleAction *action,
 	}
 }
 
+#ifdef NIP4
 static gboolean
 imagewindow_paste_filename(const char *filename, void *user_data)
 {
@@ -715,6 +725,7 @@ imagewindow_paste_filename(const char *filename, void *user_data)
 
 	return TRUE;
 }
+#endif /*NIP4*/
 
 static void
 imagewindow_paste_action_ready(GObject *source_object,
@@ -731,9 +742,11 @@ imagewindow_paste_action_ready(GObject *source_object,
 		return;
 	}
 
+#ifdef NIP4
 	if (value &&
 		!value_to_filename(value, imagewindow_paste_filename, win))
 		imagewindow_error(win);
+#endif /*NIP4*/
 }
 
 static void
@@ -770,6 +783,24 @@ imagewindow_paste_action(GSimpleAction *action,
 		if (handled)
 			break;
 	}
+}
+
+static void
+imagewindow_undo_action(GSimpleAction *action,
+	GVariant *parameter, gpointer user_data)
+{
+	Imagewindow *win = IMAGEWINDOW(user_data);
+
+	paintbox_undo(PAINTBOX(win->paintbox));
+}
+
+static void
+imagewindow_redo_action(GSimpleAction *action,
+	GVariant *parameter, gpointer user_data)
+{
+	Imagewindow *win = IMAGEWINDOW(user_data);
+
+	paintbox_redo(PAINTBOX(win->paintbox));
 }
 
 static void
@@ -827,6 +858,7 @@ imagewindow_reload_action(GSimpleAction *action,
 	}
 }
 
+#ifdef NIP4
 static void
 imagewindow_replace_action(GSimpleAction *action,
 	GVariant *parameter, gpointer user_data)
@@ -846,6 +878,7 @@ imagewindow_saveas_action(GSimpleAction *action,
 	if (win->iimage)
 		classmodel_graphic_save(CLASSMODEL(win->iimage), GTK_WINDOW(win));
 }
+#endif /*NIP4*/
 
 static void
 imagewindow_close_action(GSimpleAction *action,
@@ -1184,6 +1217,8 @@ imagewindow_region_action(GSimpleAction *action,
 static GActionEntry imagewindow_entries[] = {
 	{ "copy", imagewindow_copy_action },
 	{ "paste", imagewindow_paste_action },
+	{ "undo", imagewindow_undo_action },
+	{ "redo", imagewindow_redo_action },
 
 	{ "magin", imagewindow_magin_action },
 	{ "magout", imagewindow_magout_action },
@@ -1248,7 +1283,11 @@ imagewindow_dnd_drop(GtkDropTarget *target,
 {
 	Imagewindow *win = IMAGEWINDOW(user_data);
 
+#ifdef NIP4
 	return value_to_filename(value, imagewindow_paste_filename, win);
+#else /*!NIP4*/
+	return FALSE;
+#endif /*NIP4*/
 }
 
 static void
@@ -1355,7 +1394,7 @@ imagewindow_pressed(GtkGestureClick *gesture,
 		menu = win->right_click_menu;
 		win->action_view = NULL;
 	}
-#else
+#else /*!NIP4*/
 	menu = win->right_click_menu;
 #endif /*NIP4*/
 

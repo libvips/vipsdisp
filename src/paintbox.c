@@ -47,6 +47,23 @@ typedef enum _PaintboxState {
 	PAINTBOX_STATE_DRAG,
 } PaintboxState;
 
+/* A fragment of an undo buffer.
+ */
+typedef struct _Undofragment {
+	struct _Undobuffer *undo;		/* Main undo area */
+	VipsImage *saved;				/* Saved pixels */
+	VipsRect position;				/* Where we took it from */
+} Undofragment;
+
+/* Hold a list of the above, a bounding box for this list, and a link back to
+ * the main imageinfo.
+ */
+typedef struct _Undobuffer {
+    Paintbox *paintbox;
+    GSList *frags;					/* List of paint fragments */
+    VipsRect bounds;				/* Bounding box for frags */
+} Undobuffer;
+
 struct _Paintbox {
 	GtkWidget parent_instance;
 
@@ -58,14 +75,13 @@ struct _Paintbox {
 	 */
 	Imageui *imageui;
 	GtkWidget *imagedisplay;
-	guint drag_begin_sid;
-	guint drag_update_sid;
-	guint drag_end_sid;
-	guint motion_sid;
-	guint enter_sid;
-	guint leave_sid;
 	guint snapshot_sid;
-	guint key_pressed_sid;
+
+	/* Undo/redo buffers.
+     */
+    GSList *undo;					/* List of undo buffers */
+    GSList *redo;					/* List of redo buffers */
+    Undobuffer *current_undo;		/* Current buffer */
 
 	/* Currently selected tool.
 	 */
@@ -75,6 +91,8 @@ struct _Paintbox {
 	 */
 	PaintboxState state;
 
+	/* Start of drag.
+	 */
 	double start_x;
 	double start_y;
 
@@ -83,13 +101,27 @@ struct _Paintbox {
 	int last_x;
 	int last_y;
 
+	/* The selected ink colour converted to a double* that matches the number
+	 * of bands in the image.
+	 */
+	double *dink;
+	int n_dink;
+
 	/* Mask and for drawing.
 	 */
 	VipsImage *mask;
 
+	/* Last measured distance from top of logical rect to baseline and top
+	 * topline (top of eg. "o").
+	 */
+	int baseline;
+	int topline;
+
 	/* Widgets.
 	 */
 	GtkWidget *action_bar;
+	GtkWidget *undo_widget;
+	GtkWidget *redo_widget;
 	// tool select toggles
 	GtkWidget *pointer;
 	GtkWidget *brush;
@@ -126,44 +158,57 @@ enum {
 	SIG_LAST
 };
 
-GdkRGBA paintbox_border = { 0.9, 1.0, 0.9, 1 };
-GdkRGBA paintbox_shadow = { 0.2, 0.2, 0.2, 0.5 };
+static const GdkRGBA paintbox_border = { 0.9, 1.0, 0.9, 1 };
+static const GdkRGBA paintbox_shadow = { 0.2, 0.2, 0.2, 0.5 };
+static const int paintbox_max_undo = 10;
+
+/* Free up an undo fragment.
+ */
+static void
+paintbox_undofragment_free(void *data)
+{
+	Undofragment *frag = (Undofragment *) data;
+
+    VIPS_UNREF(frag->saved);
+    VIPS_FREE(frag);
+}
+
+/* Free an undo buffer.
+ */
+static void
+paintbox_undobuffer_free(void *data)
+{
+	Undobuffer *undo = (Undobuffer *) data;
+
+	g_slist_free_full(g_steal_pointer(&undo->frags),
+		paintbox_undofragment_free);
+    VIPS_FREE(undo);
+}
+
+static void
+paintbox_undo_free(Paintbox *paintbox)
+{
+	g_slist_free_full(g_steal_pointer(&paintbox->undo),
+		paintbox_undobuffer_free);
+	g_slist_free_full(g_steal_pointer(&paintbox->redo),
+		paintbox_undobuffer_free);
+
+    VIPS_FREEF(paintbox_undobuffer_free, paintbox->current_undo);
+}
 
 static void
 paintbox_disconnect(Paintbox *paintbox)
 {
-	if (paintbox->drag_begin_sid) {
-		g_signal_handler_disconnect(paintbox->imageui,
-			paintbox->drag_begin_sid);
-		g_signal_handler_disconnect(paintbox->imageui,
-			paintbox->drag_update_sid);
-		g_signal_handler_disconnect(paintbox->imageui,
-			paintbox->drag_end_sid);
-		g_signal_handler_disconnect(paintbox->imageui,
-			paintbox->motion_sid);
-		g_signal_handler_disconnect(paintbox->imageui,
-			paintbox->enter_sid);
-		g_signal_handler_disconnect(paintbox->imageui,
-			paintbox->leave_sid);
-		g_signal_handler_disconnect(paintbox->imageui,
-			paintbox->key_pressed_sid);
-
-		paintbox->drag_begin_sid = 0;
-		paintbox->drag_update_sid = 0;
-		paintbox->drag_end_sid = 0;
-		paintbox->motion_sid = 0;
-		paintbox->enter_sid = 0;
-		paintbox->leave_sid = 0;
-		paintbox->key_pressed_sid = 0;
-
-		paintbox->imageui = NULL;
-	}
-
 	if (paintbox->snapshot_sid) {
 		g_signal_handler_disconnect(paintbox->imagedisplay,
 			paintbox->snapshot_sid);
 
 		paintbox->imagedisplay = NULL;
+	}
+
+	if (paintbox->imageui) {
+		imageui_client_remove(paintbox->imageui, G_OBJECT(paintbox));
+		paintbox->imageui = NULL;
 	}
 }
 
@@ -176,9 +221,10 @@ paintbox_dispose(GObject *object)
 	printf("paintbox_dispose:\n");
 #endif /*DEBUG*/
 
+	paintbox_undo_free(paintbox);
 	VIPS_UNREF(paintbox->mask);
-
 	VIPS_FREEF(gtk_widget_unparent, paintbox->action_bar);
+	VIPS_FREE(paintbox->dink);
 
 	G_OBJECT_CLASS(paintbox_parent_class)->dispose(object);
 }
@@ -190,13 +236,16 @@ paintbox_refresh(Paintbox *paintbox)
 		GTK_TOGGLE_BUTTON(paintbox->tools[paintbox->tool]);
 	gtk_toggle_button_set_active(button, TRUE);
 
-	// FIXME ... update undo/redo button sensitivity
+	gtk_widget_set_sensitive(paintbox->undo_widget, !!paintbox->undo);
+	gtk_widget_set_sensitive(paintbox->redo_widget, !!paintbox->redo);
 }
 
 static gboolean
 paintbox_make_brush(Paintbox *paintbox)
 {
 	int size = rint(TSLIDER(paintbox->width)->value);
+
+	VIPS_UNREF(paintbox->mask);
 
 	VipsImage *mask;
 	if (vips_mask_ideal(&mask, size, size, 1.0,
@@ -206,30 +255,35 @@ paintbox_make_brush(Paintbox *paintbox)
 		NULL))
 		return FALSE;
 
-	VIPS_UNREF(paintbox->mask);
 	paintbox->mask = mask;
 
 	return TRUE;
 }
 
 static gboolean
-paintbox_make_text(Paintbox *paintbox)
+paintbox_make_text(Paintbox *paintbox, const char *text)
 {
-	g_autofree char *text =
-		gtk_editable_get_chars(GTK_EDITABLE(paintbox->text_string), 0, -1);
 	PangoFontDescription *desc = gtk_font_dialog_button_get_font_desc(
 		GTK_FONT_DIALOG_BUTTON(paintbox->font));
 	g_autofree char *font = pango_font_description_to_string(desc);
 
-	if (text &&
-		strlen(text) > 0) {
-		VipsImage *mask;
-		if (vips_text(&mask, text, "font", font, NULL))
-			return FALSE;
+	VIPS_UNREF(paintbox->mask);
 
-		VIPS_UNREF(paintbox->mask);
-		paintbox->mask = mask;
-	}
+	// render "o" to get the height of a char with no ascenders and no
+	// descenders
+	VipsImage *o;
+	if (vips_text(&o, "o", "font", font, NULL))
+		return FALSE;
+	// therefore distance from top of logical rect to baseline
+	paintbox->baseline = o->Ysize + o->Yoffset;
+	paintbox->topline = o->Yoffset;
+	VIPS_UNREF(o);
+
+	VipsImage *mask;
+	if (vips_text(&mask, text, "font", font, NULL))
+		return FALSE;
+
+	paintbox->mask = mask;
 
 	return TRUE;
 }
@@ -276,17 +330,44 @@ paintbox_set_tool(Paintbox *paintbox, PaintboxTool tool)
 	}
 }
 
-static gboolean
-paintbox_drag_begin(Imageui *imageui,
-	gdouble start_x, gdouble start_y, GtkGestureDrag *drag, gpointer user_data)
+static void
+paintbox_snap_brush(Paintbox *paintbox,
+	int x, int y, int r, int *new_x, int *new_y)
 {
-	Paintbox *paintbox = PAINTBOX(user_data);
+	VipsRect brush = {x, y, 0, 0};
+	vips_rect_marginadjust(&brush, r);
+	VipsRect new_brush;
+	if (imageui_snap_rect(paintbox->imageui, &brush, &new_brush)) {
+		*new_x = new_brush.left + r;
+		*new_y = new_brush.top + r;
+	}
+	else {
+		*new_x = x;
+		*new_y = y;
+	}
+}
+
+static gboolean
+paintbox_drag_begin(Paintbox *paintbox,
+	gdouble start_x, gdouble start_y, GdkModifierType modifiers)
+{
+	Imageui *imageui = paintbox->imageui;
+
+	/* Don't handle shift- or ctrl-drag.
+	 */
+	if (modifiers & GDK_CONTROL_MASK ||
+		modifiers & GDK_SHIFT_MASK)
+		return FALSE;
 
 	paintbox->start_x = start_x;
 	paintbox->start_y = start_y;
 
 	double image_x, image_y;
 	imageui_gtk_to_image(imageui, start_x, start_y, &image_x, &image_y);
+	int x = rint(image_x);
+	int y = rint(image_y);
+
+	int radius = rint(TSLIDER(paintbox->width)->value / 2);
 
 #ifdef DEBUG_VERBOSE
 	printf("paintbox_drag_begin: start_x = %g, start_y = %g\n",
@@ -299,46 +380,94 @@ paintbox_drag_begin(Imageui *imageui,
 		paintbox->state == PAINTBOX_STATE_WAIT) {
 		switch (paintbox->tool) {
 		case PAINTBOX_TOOL_BRUSH:
-			paintbox->last_x = rint(image_x);
-			paintbox->last_y = rint(image_y);
+			paintbox_snap_brush(paintbox, x, y, radius, &x, &y);
+			paintbox->last_x = x;
+			paintbox->last_y = y;
 			paintbox_make_brush(paintbox);
 			break;
 
 		case PAINTBOX_TOOL_LINE:
+			imageui_snap_point(paintbox->imageui, x, y, &x, &y);
+			paintbox->last_x = x;
+			paintbox->last_y = y;
+
 			paintbox_set_rubber(paintbox, PAINTBOX_RUBBER_LINE,
-				rint(image_x), rint(image_y),
-				rint(image_x), rint(image_y),
+				x, y,
+				x, y,
 				0, 0);
-			paintbox->last_x = rint(image_x);
-			paintbox->last_y = rint(image_y);
 			break;
 
 		case PAINTBOX_TOOL_RECT:
+			imageui_snap_point(paintbox->imageui, x, y, &x, &y);
+			paintbox->last_x = x;
+			paintbox->last_y = y;
+
 			paintbox_set_rubber(paintbox, PAINTBOX_RUBBER_RECT,
-				rint(image_x), rint(image_y),
-				rint(image_x), rint(image_y),
+				x, y,
+				x, y,
 				0, 0);
 			break;
 
 		case PAINTBOX_TOOL_CIRCLE:
+			imageui_snap_point(paintbox->imageui, x, y, &x, &y);
+			paintbox->last_x = x;
+			paintbox->last_y = y;
+
 			paintbox_set_rubber(paintbox, PAINTBOX_RUBBER_CIRCLE,
-				rint(image_x), rint(image_y),
+				x, y,
 				0, 0,
 				1, 0);
 			break;
 
 		case PAINTBOX_TOOL_SMUDGE:
-			paintbox->last_x = rint(image_x);
-			paintbox->last_y = rint(image_y);
+			paintbox_snap_brush(paintbox, x, y, radius, &x, &y);
+			paintbox->last_x = x;
+			paintbox->last_y = y;
+			break;
+
+		case PAINTBOX_TOOL_FLOOD_UNTIL:
+		case PAINTBOX_TOOL_FLOOD_WHILE:
+		case PAINTBOX_TOOL_DROPPER:
+			// just note the start point in case there's a single click and no
+			// motion
+			imageui_snap_point(paintbox->imageui, x, y, &x, &y);
+			paintbox_set_rubber(paintbox, PAINTBOX_RUBBER_NONE,
+				x, y,
+				0, 0,
+				0, 0);
 			break;
 
 		case PAINTBOX_TOOL_TEXT:
-			if (paintbox_make_text(paintbox) &&
-				paintbox->mask)
-				paintbox_set_rubber(paintbox, PAINTBOX_RUBBER_BOX,
-					rint(image_x), rint(image_y),
-					0, 0,
-					paintbox->mask->Xsize, paintbox->mask->Ysize);
+			g_autofree char *text =
+				gtk_editable_get_chars(GTK_EDITABLE(paintbox->text_string),
+					0, -1);
+
+			if (!text ||
+				strlen(text) == 0) {
+				vips_error("Paintbox", "%s", _("empty string"));
+				imagewindow_error(paintbox->win);
+				return TRUE;
+			}
+
+			// the snap box is positioned with no ascenders and no
+			// descenders
+			paintbox_make_text(paintbox, text);
+
+			VipsRect rect = {
+				.left = x,
+				.top = y,
+				.width = paintbox->mask->Xsize,
+				.height = paintbox->baseline - paintbox->topline,
+			};
+			imageui_snap_rect(paintbox->imageui, &rect, &rect);
+
+			paintbox_set_rubber(paintbox, PAINTBOX_RUBBER_BOX,
+				rect.left,
+				rect.top,
+				0, 0,
+				paintbox->mask->Xsize,
+				paintbox->baseline - paintbox->topline);
+
 			break;
 
 		default:
@@ -352,83 +481,192 @@ paintbox_drag_begin(Imageui *imageui,
 	return handled;
 }
 
-static void
-paintbox_update_brush_draw(Paintbox *paintbox, int x, int y)
+static Undofragment *
+paintbox_undofragment_new(Undobuffer *undo)
 {
-	Imageui *imageui = imagewindow_get_imageui(paintbox->win);
-	Tilesource *tilesource = imageui_get_tilesource(imageui);
+    Undofragment *frag = VIPS_NEW(NULL, Undofragment);
 
-	const GdkRGBA *rgba =
-		gtk_color_dialog_button_get_rgba(
-			GTK_COLOR_DIALOG_BUTTON(paintbox->ink));
-	double rgb[3] = {
-		rgba->red * 255.0,
-		rgba->green * 255.0,
-		rgba->blue * 255.0,
-	};
+    frag->undo = undo;
 
-	if (tilesource &&
-		paintbox->mask)
-		tilesource_draw_line(tilesource, rgb, 3, paintbox->mask,
-			paintbox->last_x, paintbox->last_y, x, y);
-
-	paintbox->last_x = x;
-	paintbox->last_y = y;
+    return frag;
 }
 
-static void
-paintbox_update_smudge_draw(Paintbox *paintbox, int x, int y)
+static Undobuffer *
+paintbox_undobuffer_new(Paintbox *paintbox)
 {
-	Imageui *imageui = imagewindow_get_imageui(paintbox->win);
-	Tilesource *tilesource = imageui_get_tilesource(imageui);
+    Undobuffer *undo = VIPS_NEW(NULL, Undobuffer);
 
-	int width = rint(TSLIDER(paintbox->width)->value);
+    undo->paintbox = paintbox;
 
-	if (tilesource)
-		tilesource_draw_smudge(tilesource, width,
-			paintbox->last_x, paintbox->last_y, x, y);
-
-	paintbox->last_x = x;
-	paintbox->last_y = y;
+    return undo;
 }
 
+/* Grab into an undo fragment. Add frag to frag list on undo buffer, expand
+ * bounding box.
+ */
+static Undofragment *
+paintbox_undo_grab(Undobuffer *undo, VipsRect *position)
+{
+    Paintbox *paintbox = undo->paintbox;
+	Imageui *imageui = imagewindow_get_imageui(paintbox->win);
+	Tilesource *tilesource = imageui_get_tilesource(imageui);
+    Undofragment *frag = paintbox_undofragment_new(undo);
+
+    if (!(frag->saved = tilesource_draw_copy(tilesource, position))) {
+        paintbox_undofragment_free(frag);
+		error_vips_all();
+        return NULL;
+    }
+
+    frag->position = *position;
+    undo->frags = g_slist_prepend(undo->frags, frag);
+    vips_rect_unionrect(position, &undo->bounds, &undo->bounds);
+
+    return frag;
+}
+
+/* Trim the undo/redo buffers if we have more than x items on it.
+ */
+static void
+paintbox_undo_trim(Paintbox *paintbox)
+{
+    int len = g_slist_length(paintbox->undo);
+    if (len > paintbox_max_undo) {
+        GSList *l = g_slist_reverse(paintbox->undo);
+
+        for (int i = 0; i < len - paintbox_max_undo; i++) {
+            Undobuffer *undo = (Undobuffer *) l->data;
+
+            paintbox_undobuffer_free(undo);
+            l = g_slist_remove(l, undo);
+        }
+
+        paintbox->undo = g_slist_reverse(l);
+    }
+}
+
+/* Mark the start or end of an undo session. Copy current undo information
+ * to the undo buffers and NULL out the current undo pointer.
+ *
+ * Junk all redo information: this new undo action makes all that out of date.
+ */
+void
+paintbox_undo_mark(Paintbox *paintbox)
+{
+    if (paintbox->current_undo) {
+        /* Left over from the last undo save. Copy to undo save list
+         * and get ready for new undo buffer.
+         */
+        paintbox->undo =
+			g_slist_prepend(paintbox->undo, paintbox->current_undo);
+        paintbox->current_undo = NULL;
+    }
+
+    /* Junk all redo information, it must be out of date.
+     */
+    slist_map(paintbox->redo, (SListMapFn) paintbox_undobuffer_free, NULL);
+    VIPS_FREEF(g_slist_free, paintbox->redo);
+
+    paintbox_undo_trim(paintbox);
+
+    paintbox_refresh(paintbox);
+}
+
+/* Add some pixels to the current undo buffer.
+ */
 static gboolean
-paintbox_drag_update(Imageui *imageui,
-	gdouble offset_x, gdouble offset_y, GtkGestureDrag *drag,
-	gpointer user_data)
+paintbox_undo_add(Paintbox *paintbox, VipsRect *position)
 {
-	Paintbox *paintbox = PAINTBOX(user_data);
+	Undobuffer *undo = paintbox->current_undo;
 
-	double gtk_x = paintbox->start_x + offset_x;
-	double gtk_y = paintbox->start_y + offset_y;
-	double image_x, image_y;
-	imageui_gtk_to_image(imageui, gtk_x, gtk_y, &image_x, &image_y);
+    if (!undo) {
+        paintbox->current_undo = undo = paintbox_undobuffer_new(paintbox);
 
-#ifdef DEBUG_VERBOSE
-	printf("paintbox_drag_update: offset_x = %g, offset_y = %g\n",
-		offset_x, offset_y);
-#endif /*DEBUG_VERBOSE*/
+        return paintbox_undo_grab(undo, position) != NULL;
+    }
 
-	gboolean handled = FALSE;
+	/* Do we need to expand our saved area to the right?
+     */
+    if (VIPS_RECT_RIGHT(position) > VIPS_RECT_RIGHT(&undo->bounds)) {
+		VipsRect over = {
+			.left = VIPS_RECT_RIGHT(&undo->bounds),
+			.top = undo->bounds.top,
+			.width = VIPS_RECT_RIGHT(position) - VIPS_RECT_RIGHT(&undo->bounds),
+			.height = undo->bounds.height,
+		};
 
-	if (paintbox->state == PAINTBOX_STATE_DRAG) {
-		switch (paintbox->tool) {
-		case PAINTBOX_TOOL_BRUSH:
-			paintbox_update_brush_draw(paintbox, image_x, image_y);
-			break;
+        if (!paintbox_undo_grab(undo, &over))
+            return FALSE;
+    }
 
-		case PAINTBOX_TOOL_SMUDGE:
-			paintbox_update_smudge_draw(paintbox, image_x, image_y);
-			break;
+    /* Left?
+     */
+    if (undo->bounds.left > position->left) {
+		VipsRect over = {
+			.left = position->left,
+			.top = undo->bounds.top,
+			.width = undo->bounds.left - position->left,
+			.height = undo->bounds.height,
+		};
 
-		default:
-			break;
-		}
+        if (!paintbox_undo_grab(undo, &over))
+            return FALSE;
+    }
 
-		handled = TRUE;
-	}
+    /* Up?
+     */
+    if (undo->bounds.top > position->top) {
+		VipsRect over = {
+			.left = undo->bounds.left,
+			.top = position->top,
+			.width = undo->bounds.width,
+			.height = undo->bounds.top - position->top,
+		};
 
-	return handled;
+        if (!paintbox_undo_grab(undo, &over))
+            return FALSE;
+    }
+
+    /* Down?
+     */
+    if (VIPS_RECT_BOTTOM(position) > VIPS_RECT_BOTTOM(&undo->bounds)) {
+		VipsRect over = {
+			.left = undo->bounds.left,
+			.top = VIPS_RECT_BOTTOM(&undo->bounds),
+			.width = undo->bounds.width,
+			.height = VIPS_RECT_BOTTOM(position) -
+				VIPS_RECT_BOTTOM(&undo->bounds)
+		};
+
+        if (!paintbox_undo_grab(undo, &over))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
+/* Paste an undo fragment back into the image.
+ */
+static void *
+paintbox_undofragment_paste(Undofragment *frag)
+{
+    Undobuffer *undo = frag->undo;
+	Paintbox *paintbox = undo->paintbox;
+	Imageui *imageui = imagewindow_get_imageui(paintbox->win);
+	Tilesource *tilesource = imageui_get_tilesource(imageui);
+
+	tilesource_draw_paste(tilesource, frag->saved, &frag->position);
+
+    return NULL;
+}
+
+/* Paste a whole undo buffer back into the image.
+ */
+static void
+paintbox_undobuffer_paste(Undobuffer *undo)
+{
+    slist_map(undo->frags,
+        (SListMapFn) paintbox_undofragment_paste, NULL);
 }
 
 #ifdef NIP4
@@ -458,26 +696,212 @@ paintbox_update_model(Paintbox *paintbox)
 }
 #endif /*NIP4*/
 
-static gboolean
-paintbox_drag_end(Imageui *imageui,
-	gdouble offset_x, gdouble offset_y, GtkGestureDrag *drag,
-	gpointer user_data)
+/* Undo a paint action.
+ */
+gboolean
+paintbox_undo(Paintbox *paintbox)
 {
-	Paintbox *paintbox = PAINTBOX(user_data);
+    Undobuffer *undo;
+
+	/* Do nothing if we're not active.
+	 */
+	if (paintbox->tool == PAINTBOX_TOOL_POINTER)
+        return TRUE;
+
+    /* Find the undo action we are to perform.
+     */
+    if (!paintbox->undo)
+        return TRUE;
+    undo = (Undobuffer *) paintbox->undo->data;
+
+    /* We are going to undo the first action on the undo list. We must
+     * save the area under the first undo action to the redo list.
+     */
+    if (!paintbox_undo_add(paintbox, &undo->bounds))
+        return FALSE;
+    paintbox->redo = g_slist_prepend(paintbox->redo, paintbox->current_undo);
+    paintbox->current_undo = NULL;
+
+    /* Paint undo back.
+     */
+    paintbox_undobuffer_paste(undo);
+
+    /* Junk the undo action we have performed.
+     */
+    paintbox->undo = g_slist_remove(paintbox->undo, undo);
+    paintbox_undobuffer_free(undo);
+
+    paintbox_undo_trim(paintbox);
+
+    paintbox_refresh(paintbox);
+
+#ifdef NIP4
+	paintbox_update_model(paintbox);
+#endif /*NIP4*/
+
+    return TRUE;
+}
+
+/* Redo a paint action, if possible.
+ */
+gboolean
+paintbox_redo(Paintbox *paintbox)
+{
+    Undobuffer *undo;
+
+	/* Do nothing if we're not active.
+	 */
+	if (paintbox->tool == PAINTBOX_TOOL_POINTER)
+        return TRUE;
+
+    /* Find the redo action we are to perform.
+     */
+    if (!paintbox->redo)
+        return TRUE;
+    undo = (Undobuffer *) paintbox->redo->data;
+
+    /* We are going to redo the first action on the redo list. We must
+     * save the area under the first redo action to the undo list.
+     */
+    if (!paintbox_undo_add(paintbox, &undo->bounds))
+        return FALSE;
+    paintbox->undo = g_slist_prepend(paintbox->undo, paintbox->current_undo);
+    paintbox->current_undo = NULL;
+
+    paintbox_undobuffer_paste(undo);
+
+    /* We can junk the head of the undo list now.
+     */
+    paintbox->redo = g_slist_remove(paintbox->redo, undo);
+    paintbox_undobuffer_free(undo);
+
+    paintbox_undo_trim(paintbox);
+
+    paintbox_refresh(paintbox);
+
+#ifdef NIP4
+	paintbox_update_model(paintbox);
+#endif /*NIP4*/
+
+    return TRUE;
+}
+
+static int
+paintbox_get_bands(Paintbox *paintbox)
+{
+	Imageui *imageui = imagewindow_get_imageui(paintbox->win);
 	Tilesource *tilesource = imageui_get_tilesource(imageui);
+	VipsImage *image = tilesource_get_base_image(tilesource);
 
-	double gtk_x = paintbox->start_x + offset_x;
-	double gtk_y = paintbox->start_y + offset_y;
-	double image_x, image_y;
-	imageui_gtk_to_image(imageui, gtk_x, gtk_y, &image_x, &image_y);
+	// default to rgb if no image is loaded
+	return image ? image->Bands : 3;
+}
 
-	const GdkRGBA *rgba = gtk_color_dialog_button_get_rgba(
+static void
+paintbox_get_ink(Paintbox *paintbox)
+{
+	VIPS_FREE(paintbox->dink);
+
+	paintbox->n_dink = paintbox_get_bands(paintbox);
+	paintbox->dink = VIPS_ARRAY(NULL, paintbox->n_dink, double);
+
+	const GdkRGBA *rgba =
+		gtk_color_dialog_button_get_rgba(
 			GTK_COLOR_DIALOG_BUTTON(paintbox->ink));
-	double rgb[3] = {
+	double dink[4] = {
 		rgba->red * 255.0,
 		rgba->green * 255.0,
 		rgba->blue * 255.0,
+		rgba->alpha * 255.0,
 	};
+
+	for (int i = 0; i < VIPS_MIN(4, paintbox->n_dink); i++)
+		paintbox->dink[i] = dink[i];
+}
+
+static void
+paintbox_update_brush_draw(Paintbox *paintbox, int x, int y)
+{
+	Imageui *imageui = imagewindow_get_imageui(paintbox->win);
+	Tilesource *tilesource = imageui_get_tilesource(imageui);
+
+	paintbox_get_ink(paintbox);
+
+	if (tilesource &&
+		paintbox->mask) {
+		if (rint(TSLIDER(paintbox->width)->value < 2))
+			tilesource_draw_line1(tilesource,
+				paintbox->dink, paintbox->n_dink,
+				paintbox->last_x, paintbox->last_y, x, y,
+				(TilesourceSaveFn) paintbox_undo_add, paintbox);
+		else
+			tilesource_draw_line(tilesource,
+				paintbox->dink, paintbox->n_dink,
+				paintbox->mask,
+				paintbox->last_x, paintbox->last_y, x, y,
+				(TilesourceSaveFn) paintbox_undo_add, paintbox);
+	}
+
+	paintbox->last_x = x;
+	paintbox->last_y = y;
+}
+
+static void
+paintbox_update_smudge_draw(Paintbox *paintbox, int x, int y)
+{
+	Imageui *imageui = imagewindow_get_imageui(paintbox->win);
+	Tilesource *tilesource = imageui_get_tilesource(imageui);
+
+	int width = rint(TSLIDER(paintbox->width)->value);
+
+	if (tilesource)
+		tilesource_draw_smudge(tilesource, width,
+			paintbox->last_x, paintbox->last_y, x, y,
+			(TilesourceSaveFn) paintbox_undo_add, paintbox);
+
+	paintbox->last_x = x;
+	paintbox->last_y = y;
+}
+
+static gboolean
+paintbox_drag_update(Paintbox *paintbox,
+	gdouble offset_x, gdouble offset_y, GdkModifierType modifiers)
+{
+#ifdef DEBUG_VERBOSE
+	printf("paintbox_drag_update: offset_x = %g, offset_y = %g\n",
+		offset_x, offset_y);
+#endif /*DEBUG_VERBOSE*/
+
+	gboolean handled = FALSE;
+
+	if (paintbox->state == PAINTBOX_STATE_DRAG) {
+		switch (paintbox->tool) {
+		case PAINTBOX_TOOL_BRUSH:
+			paintbox_update_brush_draw(paintbox, paintbox->x0, paintbox->y0);
+			break;
+
+		case PAINTBOX_TOOL_SMUDGE:
+			paintbox_update_smudge_draw(paintbox, paintbox->x0, paintbox->y0);
+			break;
+
+		default:
+			break;
+		}
+
+		handled = TRUE;
+	}
+
+	return handled;
+}
+
+static gboolean
+paintbox_drag_end(Paintbox *paintbox,
+	gdouble offset_x, gdouble offset_y, GdkModifierType modifiers)
+{
+	Imageui *imageui = paintbox->imageui;
+	Tilesource *tilesource = imageui_get_tilesource(imageui);
+
+	paintbox_get_ink(paintbox);
 
 	gboolean fill =
 		gtk_check_button_get_active(GTK_CHECK_BUTTON(paintbox->fill));
@@ -492,49 +916,61 @@ paintbox_drag_end(Imageui *imageui,
 	if (paintbox->state == PAINTBOX_STATE_DRAG) {
 		switch (paintbox->tool) {
 		case PAINTBOX_TOOL_BRUSH:
-			paintbox_update_brush_draw(paintbox, image_x, image_y);
+			paintbox_update_brush_draw(paintbox, paintbox->x0, paintbox->y0);
 			break;
 
 		case PAINTBOX_TOOL_LINE:
 			paintbox_make_brush(paintbox);
-			paintbox_update_brush_draw(paintbox, image_x, image_y);
+			paintbox_update_brush_draw(paintbox, paintbox->x1, paintbox->y1);
 			break;
 
 		case PAINTBOX_TOOL_RECT:
 			if (tilesource)
 				tilesource_draw_rect(tilesource,
-					rgb, 3, fill,
+					paintbox->dink, paintbox->n_dink,
+					fill,
 					paintbox->x0, paintbox->y0,
-					paintbox->x1 - paintbox->x0, paintbox->y1 - paintbox->y0);
+					paintbox->x1 - paintbox->x0, paintbox->y1 - paintbox->y0,
+					(TilesourceSaveFn) paintbox_undo_add, paintbox);
 			break;
 
 		case PAINTBOX_TOOL_CIRCLE:
 			if (tilesource)
 				tilesource_draw_circle(tilesource,
-					rgb, 3, fill, paintbox->x0, paintbox->y0, paintbox->a);
+					paintbox->dink, paintbox->n_dink,
+					fill, paintbox->x0, paintbox->y0, paintbox->a,
+					(TilesourceSaveFn) paintbox_undo_add, paintbox);
 			break;
 
 		case PAINTBOX_TOOL_SMUDGE:
-			paintbox_update_smudge_draw(paintbox, image_x, image_y);
+			paintbox_update_smudge_draw(paintbox, paintbox->x0, paintbox->y0);
 			break;
 
 		case PAINTBOX_TOOL_FLOOD_UNTIL:
 			if (tilesource)
 				tilesource_draw_flood(tilesource,
-					rgb, 3, FALSE, image_x, image_y);
+					paintbox->dink, paintbox->n_dink,
+					FALSE, paintbox->x0, paintbox->y0,
+					(TilesourceSaveFn) paintbox_undo_add, paintbox);
 			break;
 
 		case PAINTBOX_TOOL_FLOOD_WHILE:
 			if (tilesource)
 				tilesource_draw_flood(tilesource,
-					rgb, 3, TRUE, image_x, image_y);
+					paintbox->dink, paintbox->n_dink,
+					TRUE, paintbox->x0, paintbox->y0,
+					(TilesourceSaveFn) paintbox_undo_add, paintbox);
 			break;
 
 		case PAINTBOX_TOOL_TEXT:
 			if (tilesource &&
 				paintbox->mask)
 				tilesource_draw_mask(tilesource,
-					rgb, 3, paintbox->mask, image_x, image_y);
+					paintbox->dink, paintbox->n_dink,
+					paintbox->mask,
+					paintbox->x0,
+					paintbox->y0 - paintbox->topline + paintbox->mask->Yoffset,
+					(TilesourceSaveFn) paintbox_undo_add, paintbox);
 			break;
 
 		default:
@@ -544,6 +980,7 @@ paintbox_drag_end(Imageui *imageui,
 		handled = TRUE;
 		paintbox_rubber_clear(paintbox);
 		paintbox->state = PAINTBOX_STATE_WAIT;
+		paintbox_undo_mark(paintbox);
 
 #ifdef NIP4
 		paintbox_update_model(paintbox);
@@ -554,14 +991,16 @@ paintbox_drag_end(Imageui *imageui,
 }
 
 static gboolean
-paintbox_motion(Imageui *imageui,
-	gdouble gtk_x, gdouble gtk_y, GtkEventControllerMotion *motion,
-	gpointer user_data)
+paintbox_motion(Paintbox *paintbox, gdouble gtk_x, gdouble gtk_y)
 {
-	Paintbox *paintbox = PAINTBOX(user_data);
+	Imageui *imageui = paintbox->imageui;
+	int radius = rint(TSLIDER(paintbox->width)->value / 2);
 
-	double image_x, image_y;
+	double image_x;
+	double image_y;
 	imageui_gtk_to_image(imageui, gtk_x, gtk_y, &image_x, &image_y);
+	int x = rint(image_x);
+	int y = rint(image_y);
 
 #ifdef DEBUG_VERBOSE
 	printf("paintbox_motion: image_x = %g, image_y = %g\n",
@@ -574,9 +1013,9 @@ paintbox_motion(Imageui *imageui,
 		switch (paintbox->tool) {
 		case PAINTBOX_TOOL_SMUDGE:
 		case PAINTBOX_TOOL_BRUSH:
-			paintbox_set_rubber(paintbox, PAINTBOX_RUBBER_CIRCLE,
-				rint(image_x), rint(image_y), 0, 0,
-				rint(TSLIDER(paintbox->width)->value) / 2, 0);
+			paintbox_snap_brush(paintbox, x, y, radius, &x, &y);
+			paintbox_set_rubber(paintbox,
+				PAINTBOX_RUBBER_CIRCLE, x, y, 0, 0, radius, 0);
 			break;
 
 		default:
@@ -586,33 +1025,54 @@ paintbox_motion(Imageui *imageui,
 		switch (paintbox->tool) {
 		case PAINTBOX_TOOL_SMUDGE:
 		case PAINTBOX_TOOL_BRUSH:
-			paintbox_set_rubber(paintbox, PAINTBOX_RUBBER_CIRCLE,
-				rint(image_x), rint(image_y), 0, 0,
-				rint(TSLIDER(paintbox->width)->value) / 2, 0);
+			paintbox_snap_brush(paintbox, x, y, radius, &x, &y);
+			paintbox_set_rubber(paintbox,
+				PAINTBOX_RUBBER_CIRCLE, x, y, 0, 0, radius, 0);
 			break;
 
 		case PAINTBOX_TOOL_LINE:
-			paintbox->x1 = rint(image_x);
-			paintbox->y1 = rint(image_y);
+			imageui_snap_point(paintbox->imageui, x, y, &x, &y);
+			paintbox->x1 = x;
+			paintbox->y1 = y;
 			gtk_widget_queue_draw(paintbox->imagedisplay);
 			break;
 
 		case PAINTBOX_TOOL_RECT:
-			paintbox->x1 = rint(image_x);
-			paintbox->y1 = rint(image_y);
+			imageui_snap_point(paintbox->imageui, x, y, &x, &y);
+			paintbox->x1 = x;
+			paintbox->y1 = y;
 			gtk_widget_queue_draw(paintbox->imagedisplay);
 			break;
 
 		case PAINTBOX_TOOL_CIRCLE:
-			double dx = paintbox->x0 - image_x;
-			double dy = paintbox->y0 - image_y;
+			imageui_snap_point(paintbox->imageui, x, y, &x, &y);
+			double dx = paintbox->x0 - x;
+			double dy = paintbox->y0 - y;
 			paintbox->a = rint(sqrt(dx * dx + dy * dy));
 			gtk_widget_queue_draw(paintbox->imagedisplay);
 			break;
 
+		case PAINTBOX_TOOL_FLOOD_UNTIL:
+		case PAINTBOX_TOOL_FLOOD_WHILE:
+		case PAINTBOX_TOOL_DROPPER:
+			// only note the new position
+			imageui_snap_point(paintbox->imageui, x, y, &x, &y);
+			paintbox->x0 = x;
+			paintbox->y0 = y;
+			break;
+
 		case PAINTBOX_TOOL_TEXT:
-			paintbox->x0 = rint(image_x);
-			paintbox->y0 = rint(image_y);
+			// the snap box is positioned with no ascenders and no descenders
+			VipsRect text = {
+				.left = x,
+				.top = y,
+				.width = paintbox->mask->Xsize,
+				.height = paintbox->baseline - paintbox->topline,
+			};
+			imageui_snap_rect(paintbox->imageui, &text, &text);
+			paintbox->x0 = text.left;
+			paintbox->y0 = text.top;
+
 			gtk_widget_queue_draw(paintbox->imagedisplay);
 			break;
 
@@ -623,31 +1083,28 @@ paintbox_motion(Imageui *imageui,
 	return handled;
 }
 
-static void
-paintbox_enter(Imageui *imageui, gpointer user_data)
+static gboolean
+paintbox_enter(Paintbox *paintbox)
 {
-	Paintbox *paintbox = PAINTBOX(user_data);
-
 	paintbox->hide = FALSE;
 	gtk_widget_queue_draw(paintbox->imagedisplay);
-}
 
-static void
-paintbox_leave(Imageui *imageui, gpointer user_data)
-{
-	Paintbox *paintbox = PAINTBOX(user_data);
-
-	paintbox->hide = TRUE;
-	gtk_widget_queue_draw(paintbox->imagedisplay);
+	return FALSE;
 }
 
 static gboolean
-paintbox_key_pressed(Imageui *imageui,
-	guint keyval, guint keycode, GdkModifierType state,
-	GtkEventControllerKey *key, gpointer user_data)
+paintbox_leave(Paintbox *paintbox)
 {
-	Paintbox *paintbox = PAINTBOX(user_data);
+	paintbox->hide = TRUE;
+	gtk_widget_queue_draw(paintbox->imagedisplay);
 
+	return FALSE;
+}
+
+static gboolean
+paintbox_key_pressed(Paintbox *paintbox,
+	guint keyval, guint keycode, GdkModifierType state)
+{
 #ifdef DEBUG_VERBOSE
 	printf("paintbox_key_pressed_real: keyval = %d, state = %d\n",
 		keyval, state);
@@ -681,6 +1138,30 @@ paintbox_key_pressed(Imageui *imageui,
 		}
 
 	return handled;
+}
+
+static gboolean
+paintbox_event(GObject *object, const char *signal_name,
+	double x, double y, int keyval, int keycode, GdkModifierType modifiers)
+{
+	Paintbox *paintbox = PAINTBOX(object);
+
+	if (g_str_equal(signal_name, "motion"))
+		return paintbox_motion(paintbox, x, y);
+	else if (g_str_equal(signal_name, "drag-begin"))
+		return paintbox_drag_begin(paintbox, x, y, modifiers);
+	else if (g_str_equal(signal_name, "drag-update"))
+		return paintbox_drag_update(paintbox, x, y, modifiers);
+	else if (g_str_equal(signal_name, "drag-end"))
+		return paintbox_drag_end(paintbox, x, y, modifiers);
+	else if (g_str_equal(signal_name, "key-pressed"))
+		return paintbox_key_pressed(paintbox, keyval, keycode, modifiers);
+	else if (g_str_equal(signal_name, "enter"))
+		return paintbox_enter(paintbox);
+	else if (g_str_equal(signal_name, "leave"))
+		return paintbox_leave(paintbox);
+
+	return FALSE;
 }
 
 static void
@@ -788,20 +1269,8 @@ paintbox_imagewindow_new_image(Imagewindow *win, Paintbox *paintbox)
 	paintbox_disconnect(paintbox);
 
 	paintbox->imageui = imagewindow_get_imageui(win);
-	paintbox->drag_begin_sid = g_signal_connect(paintbox->imageui,
-		"drag-begin", G_CALLBACK(paintbox_drag_begin), paintbox);
-	paintbox->drag_update_sid = g_signal_connect(paintbox->imageui,
-		"drag-update", G_CALLBACK(paintbox_drag_update), paintbox);
-	paintbox->drag_end_sid = g_signal_connect(paintbox->imageui,
-		"drag-end", G_CALLBACK(paintbox_drag_end), paintbox);
-	paintbox->motion_sid = g_signal_connect(paintbox->imageui,
-		"motion", G_CALLBACK(paintbox_motion), paintbox);
-	paintbox->enter_sid = g_signal_connect(paintbox->imageui,
-		"enter", G_CALLBACK(paintbox_enter), paintbox);
-	paintbox->leave_sid = g_signal_connect(paintbox->imageui,
-		"leave", G_CALLBACK(paintbox_leave), paintbox);
-	paintbox->key_pressed_sid = g_signal_connect(paintbox->imageui,
-		"key_pressed", G_CALLBACK(paintbox_key_pressed), paintbox);
+	imageui_client_add(paintbox->imageui, G_OBJECT(paintbox),
+		100, paintbox_event);
 
 	paintbox->imagedisplay = imageui_get_imagedisplay(paintbox->imageui);
 	paintbox->snapshot_sid = g_signal_connect(paintbox->imagedisplay,
@@ -905,10 +1374,10 @@ paintbox_init(Paintbox *paintbox)
 	paintbox->tools[PAINTBOX_TOOL_DROPPER] = paintbox->dropper;
 
 	Tslider *width = TSLIDER(paintbox->width);
-	width->from = 0;
+	width->from = 1;
 	width->to = 100;
 	width->value = 5;
-	width->digits = 1;
+	width->digits = 0;
 	tslider_changed(width);
 
 	g_signal_connect(paintbox->action_bar, "notify::revealed",
@@ -940,6 +1409,18 @@ paintbox_toggled(GtkToggleButton *button, Paintbox *paintbox)
 }
 
 static void
+paintbox_undo_clicked(GtkToggleButton *button, Paintbox *paintbox)
+{
+	paintbox_undo(paintbox);
+}
+
+static void
+paintbox_redo_clicked(GtkToggleButton *button, Paintbox *paintbox)
+{
+	paintbox_redo(paintbox);
+}
+
+static void
 paintbox_class_init(PaintboxClass *class)
 {
 	GObjectClass *gobject_class = G_OBJECT_CLASS(class);
@@ -952,6 +1433,8 @@ paintbox_class_init(PaintboxClass *class)
 	BIND_LAYOUT();
 
 	BIND_VARIABLE(Paintbox, action_bar);
+	BIND_VARIABLE(Paintbox, undo_widget);
+	BIND_VARIABLE(Paintbox, redo_widget);
 	BIND_VARIABLE(Paintbox, pointer);
 	BIND_VARIABLE(Paintbox, brush);
 	BIND_VARIABLE(Paintbox, line);
@@ -961,7 +1444,8 @@ paintbox_class_init(PaintboxClass *class)
 	BIND_VARIABLE(Paintbox, flood_while);
 	BIND_VARIABLE(Paintbox, flood_until);
 	BIND_VARIABLE(Paintbox, text);
-	BIND_VARIABLE(Paintbox, dropper);
+	//// commented out for now, since we have not done the backend yet
+	// BIND_VARIABLE(Paintbox, dropper);
 	BIND_VARIABLE(Paintbox, ink);
 	BIND_VARIABLE(Paintbox, fill);
 	BIND_VARIABLE(Paintbox, width);
@@ -969,6 +1453,8 @@ paintbox_class_init(PaintboxClass *class)
 	BIND_VARIABLE(Paintbox, text_string);
 
 	BIND_CALLBACK(paintbox_toggled);
+	BIND_CALLBACK(paintbox_undo_clicked);
+	BIND_CALLBACK(paintbox_redo_clicked);
 
 	gobject_class->dispose = paintbox_dispose;
 	gobject_class->set_property = paintbox_set_property;

@@ -32,7 +32,7 @@
 
 #define INFOBAR_TYPE (infobar_get_type())
 
-G_DECLARE_FINAL_TYPE(Infobar, infobar, NIP4, INFOBAR, GtkWidget)
+G_DECLARE_FINAL_TYPE(Infobar, infobar, APP, INFOBAR, GtkWidget)
 
 #define INFOBAR(obj) \
 	(G_TYPE_CHECK_INSTANCE_CAST((obj), INFOBAR_TYPE, Infobar))

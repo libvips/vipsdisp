@@ -44,6 +44,13 @@
 
 GType imageui_get_type(void);
 
+typedef gboolean (*ImageuiEventFn)(GObject *object,
+	const char *signal_name,
+	double x, double y, int keyval, int keycode, GdkModifierType state);
+void imageui_client_add(Imageui *imageui,
+	GObject *object, int priority, ImageuiEventFn callback);
+void imageui_client_remove(Imageui *imageui, GObject *object);
+
 #ifdef NIP4
 void imageui_set_cursor(Imageui *imageui, RegionviewResize resize);
 void imageui_add_regionview(Imageui *imageui, Regionview *regionview);

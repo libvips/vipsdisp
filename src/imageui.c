@@ -53,6 +53,15 @@ typedef enum {
 	IMAGEUI_SCROLL, /* Drag-scrolling the image */
 } ImageuiState;
 
+/* A client listening for our events.
+ */
+typedef struct _Client {
+	Imageui *imageui;
+	GObject *object;
+	int priority;
+	ImageuiEventFn callback;
+} Client;
+
 struct _Imageui {
 	GtkWidget parent_instance;
 
@@ -74,6 +83,12 @@ struct _Imageui {
 	 */
 	iImage *iimage;
 #endif /*NIP4*/
+
+	/* The set of clients which are watching our events. We can't use plain
+	 * signals since we must have the order correct (eg. first paintbox, then
+	 * region, then scroll) and that's hard to guarantee otherwise.
+	 */
+	GSList *clients;
 
 	/* Last known mouse position, in gtk coordinates. We keep these in gtk
 	 * cods so we don't need to update them on pan / zoom.
@@ -130,34 +145,15 @@ struct _Imageui {
 typedef struct _ImageuiClass {
 	GtkWidgetClass parent_class;
 
-	gboolean (*motion)(Imageui *imageui,
-		gdouble x, gdouble y, GtkEventControllerMotion *motion,
-		gpointer user_data);
-
-	gboolean (*drag_begin)(Imageui *imageui,
-		double start_x, double start_y, GtkGestureDrag *drag,
-		gpointer user_data);
-	gboolean (*drag_update)(Imageui *imageui,
-		double offset_x, double offset_y, GtkGestureDrag *drag,
-		gpointer user_data);
-	gboolean (*drag_end)(Imageui *imageui,
-		double offset_x, double offset_y, GtkGestureDrag *drag,
-		gpointer user_data);
-
-	gboolean (*key_pressed)(Imageui *imageui,
-		guint keyval, guint keycode, GdkModifierType state,
-		GtkEventControllerKey *key, gpointer user_data);
-	gboolean (*key_released)(Imageui *imageui,
-		guint keyval, guint keycode, GdkModifierType state,
-		GtkEventControllerKey *key, gpointer user_data);
-
 } ImageuiClass;
 
 G_DEFINE_TYPE(Imageui, imageui, GTK_TYPE_WIDGET);
 
 enum {
 	PROP_TILESOURCE = 1,
+#ifdef NIP4
 	PROP_IIMAGE,
+#endif /*NIP4*/
 	PROP_BACKGROUND,
 	PROP_ZOOM,
 	PROP_X,
@@ -171,17 +167,6 @@ enum {
  */
 enum {
 	SIG_CHANGED, /* New mouse position, magnification, etc. */
-
-	/* User input events.
-	 */
-	SIG_MOTION,
-	SIG_ENTER,
-	SIG_LEAVE,
-	SIG_DRAG_BEGIN,
-	SIG_DRAG_UPDATE,
-	SIG_DRAG_END,
-	SIG_KEY_PRESSED,
-	SIG_KEY_RELEASED,
 
 	SIG_LAST
 };
@@ -289,6 +274,62 @@ imageui_queue_draw(Imageui *imageui)
 	gtk_widget_queue_draw(GTK_WIDGET(imageui->imagedisplay));
 }
 
+static int
+imageui_client_sort(const void *a, const void *b)
+{
+	Client *ca = (Client *) a;
+	Client *cb = (Client *) b;
+
+	return cb->priority - ca->priority;
+}
+
+void
+imageui_client_add(Imageui *imageui,
+	GObject *object, int priority, ImageuiEventFn callback)
+{
+	Client *client = g_new0(Client, 1);
+
+	client->imageui = imageui;
+	client->object = object;
+	client->priority = priority;
+	client->callback = callback;
+
+	imageui->clients = g_slist_prepend(imageui->clients, client);
+	imageui->clients = g_slist_sort(imageui->clients, imageui_client_sort);
+}
+
+void
+imageui_client_remove(Imageui *imageui, GObject *object)
+{
+	for (GSList *p = imageui->clients; p; p = p->next) {
+		Client *client = (Client *) p->data;
+
+		if (client->object == object) {
+			imageui->clients = g_slist_remove(imageui->clients, client);
+			g_free(client);
+			break;
+		}
+	}
+}
+
+static gboolean
+imageui_client_call(Imageui *imageui, const char *signal_name,
+	double x, double y, int keyval, int keycode, GdkModifierType modifiers)
+{
+	gboolean handled = FALSE;
+	for (GSList *p = imageui->clients; p; p = p->next) {
+		Client *client = (Client *) p->data;
+
+		if (client->callback(client->object, signal_name,
+			x, y, keyval, keycode, modifiers)) {
+			handled = TRUE;
+			break;
+		}
+	}
+
+	return handled;
+}
+
 static void
 imageui_dispose(GObject *object)
 {
@@ -303,6 +344,8 @@ imageui_dispose(GObject *object)
 	VIPS_UNREF(imageui->imageuiregion);
 #endif /*NIP4*/
 
+	g_slist_free_full(g_steal_pointer(&imageui->clients), g_free);
+
 	VIPS_FREEF(gtk_widget_unparent, imageui->scrolled_window);
 
 	G_OBJECT_CLASS(imageui_parent_class)->dispose(object);
@@ -316,127 +359,6 @@ imageui_changed(Imageui *imageui)
 #endif /*DEBUG_VERBOSE*/
 
 	g_signal_emit(imageui, imageui_signals[SIG_CHANGED], 0);
-}
-
-static void
-imageui_motion(GtkEventControllerMotion *motion,
-	gdouble x, gdouble y, gpointer user_data)
-{
-	Imageui *imageui = IMAGEUI(user_data);
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_motion: x = %g, y = %g\n", x, y);
-#endif /*DEBUG_VERBOSE*/
-
-	gboolean handled;
-	g_signal_emit(imageui, imageui_signals[SIG_MOTION], 0,
-		x, y, motion, &handled);
-}
-
-static void
-imageui_enter(GtkEventControllerMotion *motion, gpointer user_data)
-{
-	Imageui *imageui = IMAGEUI(user_data);
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_enter:\n");
-#endif /*DEBUG_VERBOSE*/
-
-	g_signal_emit(imageui, imageui_signals[SIG_ENTER], 0);
-}
-
-static void
-imageui_leave(GtkEventControllerMotion *motion, gpointer user_data)
-{
-	Imageui *imageui = IMAGEUI(user_data);
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_leave:\n");
-#endif /*DEBUG_VERBOSE*/
-
-	g_signal_emit(imageui, imageui_signals[SIG_LEAVE], 0);
-}
-
-static void
-imageui_drag_begin(GtkGestureDrag *drag,
-	gdouble start_x, gdouble start_y, gpointer user_data)
-{
-	Imageui *imageui = IMAGEUI(user_data);
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_drag_begin: start_x = %g, start_y = %g\n",
-		start_x, start_y);
-#endif /*DEBUG_VERBOSE*/
-
-	gboolean handled;
-	g_signal_emit(imageui, imageui_signals[SIG_DRAG_BEGIN], 0,
-		start_x, start_y, drag, &handled);
-}
-
-static void
-imageui_drag_update(GtkGestureDrag *drag,
-	gdouble offset_x, gdouble offset_y, gpointer user_data)
-{
-	Imageui *imageui = IMAGEUI(user_data);
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_drag_update: offset_x = %g, offset_y = %g\n",
-		offset_x, offset_y);
-#endif /*DEBUG_VERBOSE*/
-
-	gboolean handled;
-	g_signal_emit(imageui, imageui_signals[SIG_DRAG_UPDATE], 0,
-		offset_x, offset_y, drag, &handled);
-}
-
-static void
-imageui_drag_end(GtkGestureDrag *drag,
-	gdouble offset_x, gdouble offset_y, gpointer user_data)
-{
-	Imageui *imageui = IMAGEUI(user_data);
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_drag_end: offset_x = %g, offset_y = %g\n",
-		offset_x, offset_y);
-#endif /*DEBUG_VERBOSE*/
-
-	gboolean handled;
-	g_signal_emit(imageui, imageui_signals[SIG_DRAG_END], 0,
-		offset_x, offset_y, drag, &handled);
-}
-
-static gboolean
-imageui_key_pressed(GtkEventControllerKey *key,
-	guint keyval, guint keycode, GdkModifierType state, gpointer user_data)
-{
-	Imageui *imageui = IMAGEUI(user_data);
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_key_pressed: keyval = %d\n", keyval);
-#endif /*DEBUG_VERBOSE*/
-
-	gboolean handled;
-	g_signal_emit(imageui, imageui_signals[SIG_KEY_PRESSED], 0,
-		keyval, keycode, state, key, &handled);
-
-	return handled;
-}
-
-static gboolean
-imageui_key_released(GtkEventControllerKey *key,
-	guint keyval, guint keycode, GdkModifierType state, gpointer user_data)
-{
-	Imageui *imageui = IMAGEUI(user_data);
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_key_released: keyval = %d\n", keyval);
-#endif /*DEBUG_VERBOSE*/
-
-	gboolean handled;
-	g_signal_emit(imageui, imageui_signals[SIG_KEY_RELEASED], 0,
-		keyval, keycode, state, key, &handled);
-
-	return handled;
 }
 
 #ifdef DEBUG_VERBOSE
@@ -989,313 +911,6 @@ imageui_get_mouse_position(Imageui *imageui,
 		imageui->last_x_gtk, imageui->last_y_gtk, x_image, y_image);
 }
 
-static struct {
-	int keyval;
-	double zoom;
-} magnify_keys[] = {
-	{ GDK_KEY_1, 1.0 },
-	{ GDK_KEY_2, 2.0 },
-	{ GDK_KEY_3, 3.0 },
-	{ GDK_KEY_4, 4.0 },
-	{ GDK_KEY_5, 5.0 },
-	{ GDK_KEY_6, 6.0 },
-	{ GDK_KEY_7, 7.0 },
-	{ GDK_KEY_8, 8.0 },
-	{ GDK_KEY_9, 9.0 }
-};
-
-static gboolean
-imageui_key_pressed_real(Imageui *imageui,
-	guint keyval, guint keycode, GdkModifierType state,
-	GtkEventControllerKey *key, gpointer user_data)
-{
-	GtkScrolledWindow *scrolled_window =
-		GTK_SCROLLED_WINDOW(imageui->scrolled_window);
-
-	gboolean handled;
-	double zoom_x;
-	double zoom_y;
-	gboolean ret;
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_key_pressed_real: keyval = %d, keycode = %d, state = %d\n",
-		keyval, keycode, state);
-#endif /*DEBUG_VERBOSE*/
-
-	handled = FALSE;
-
-	switch (keyval) {
-	case GDK_KEY_plus:
-		imageui_magin(imageui);
-		handled = TRUE;
-		break;
-
-	case GDK_KEY_minus:
-		imageui_magout(imageui);
-		handled = TRUE;
-		break;
-
-	case GDK_KEY_0:
-		imageui_bestfit(imageui);
-		handled = TRUE;
-		break;
-
-	case GDK_KEY_i:
-		imageui_get_mouse_position(imageui, &zoom_x, &zoom_y);
-		imageui_zoom_continuous(imageui, 1.5 * ZOOM_STEP, zoom_x, zoom_y);
-		handled = TRUE;
-		break;
-
-	case GDK_KEY_o:
-		imageui_get_mouse_position(imageui, &zoom_x, &zoom_y);
-		imageui_zoom_continuous(imageui, 0.2 * ZOOM_STEP, zoom_x, zoom_y);
-		handled = TRUE;
-		break;
-
-	case GDK_KEY_Left:
-		if (state & GDK_SHIFT_MASK)
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_PAGE_BACKWARD, TRUE, &ret);
-		else if (state & GDK_CONTROL_MASK)
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_START, TRUE, &ret);
-		else
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_STEP_LEFT, TRUE, &ret);
-		handled = TRUE;
-		break;
-
-	case GDK_KEY_Right:
-		if (state & GDK_SHIFT_MASK)
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_PAGE_FORWARD, TRUE, &ret);
-		else if (state & GDK_CONTROL_MASK)
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_END, TRUE, &ret);
-		else
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_STEP_RIGHT, TRUE, &ret);
-		handled = TRUE;
-		break;
-
-	case GDK_KEY_Up:
-		if (state & GDK_SHIFT_MASK)
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_PAGE_UP, FALSE, &ret);
-		else if (state & GDK_CONTROL_MASK)
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_START, FALSE, &ret);
-		else
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_STEP_UP, FALSE, &ret);
-		handled = TRUE;
-		break;
-
-	case GDK_KEY_Down:
-		if (state & GDK_SHIFT_MASK)
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_PAGE_DOWN, FALSE, &ret);
-		else if (state & GDK_CONTROL_MASK)
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_END, FALSE, &ret);
-		else
-			g_signal_emit_by_name(scrolled_window, "scroll-child",
-				GTK_SCROLL_STEP_DOWN, FALSE, &ret);
-		handled = TRUE;
-		break;
-
-	case GDK_KEY_d:
-		imageui_toggle_debug(imageui);
-		handled = TRUE;
-		break;
-
-	default:
-		break;
-	}
-
-	if (!handled) {
-		/* keycode is the physical key, we need to search the set of keyvals
-		 * for this physical key to see if one of them is in the set of zoom
-		 * keys.
-		 */
-		g_autofree guint *keyvals = NULL;
-		int n_entries;
-		if (gdk_display_map_keycode(gdk_display_get_default(),
-			keycode, NULL, &keyvals, &n_entries)) {
-			for (int i = 0; i < n_entries; i++) {
-				int j;
-
-				for (j = 0; j < VIPS_NUMBER(magnify_keys); j++)
-					if (magnify_keys[j].keyval == keyvals[i]) {
-						double zoom;
-
-						zoom = magnify_keys[j].zoom;
-						// ctrl-N is often workspace switch, so use shift
-						if (state & GDK_SHIFT_MASK)
-							zoom = 1.0 / zoom;
-
-						imageui_zoom_to_eased(imageui,
-							zoom * imageui_get_pixel_size(imageui));
-
-						handled = TRUE;
-						break;
-					}
-
-				if (j < VIPS_NUMBER(magnify_keys))
-					break;
-			}
-		}
-	}
-
-	return handled;
-}
-
-static gboolean
-imageui_key_released_real(Imageui *imageui,
-	guint keyval, guint keycode, GdkModifierType state,
-	GtkEventControllerKey *key, gpointer user_data)
-{
-	gboolean handled;
-
-#ifdef DEBUG_VERBOSE
-	printf("imageui_key_released_real: keyval = %d, state = %d\n",
-		keyval, state);
-#endif /*DEBUG_VERBOSE*/
-
-	handled = FALSE;
-
-	switch (keyval) {
-	case GDK_KEY_i:
-	case GDK_KEY_o:
-		imageui->zoom_rate = 1.0;
-		handled = TRUE;
-		break;
-
-	default:
-		break;
-	}
-
-	if (handled)
-		imageui_stop_animation(imageui);
-
-	return handled;
-}
-
-static gboolean
-imageui_drag_begin_real(Imageui *imageui,
-	gdouble start_x, gdouble start_y, GtkGestureDrag *drag, gpointer user_data)
-{
-#ifdef DEBUG_VERBOSE
-	printf("imageui_drag_begin_real: start_x = %g, start_y = %g\n",
-		start_x, start_y);
-#endif /*DEBUG_VERBOSE*/
-
-	gboolean handled = FALSE;
-
-	switch (imageui->state) {
-	case IMAGEUI_WAIT:
-		handled = TRUE;
-		int window_left;
-		int window_top;
-		int window_width;
-		int window_height;
-		imageui_get_position(imageui,
-			&window_left, &window_top, &window_width, &window_height);
-
-		imageui->window_left = window_left;
-		imageui->window_top = window_top;
-		imageui->start_x = start_x;
-		imageui->start_y = start_y;
-
-		break;
-
-	case IMAGEUI_SCROLL:
-		break;
-
-	default:
-		break;
-	}
-
-	return handled;
-}
-
-static gboolean
-imageui_drag_update_real(Imageui *imageui,
-	gdouble offset_x, gdouble offset_y, GtkGestureDrag *drag,
-	gpointer user_data)
-{
-#ifdef DEBUG_VERBOSE
-	printf("imageui_drag_update_real: offset_x = %g, offset_y = %g\n",
-		offset_x, offset_y);
-#endif /*DEBUG_VERBOSE*/
-
-	gboolean handled = FALSE;
-
-	switch (imageui->state) {
-	case IMAGEUI_WAIT:
-		handled = TRUE;
-
-		if (fabs(offset_x) > 5 ||
-			fabs(offset_y) > 5)
-			imageui->state = IMAGEUI_SCROLL;
-		break;
-
-	case IMAGEUI_SCROLL:
-		handled = TRUE;
-
-		imageui_set_position(imageui,
-			imageui->window_left - offset_x, imageui->window_top - offset_y);
-		break;
-
-		default:
-			break;
-	}
-
-	return handled;
-}
-
-static gboolean
-imageui_drag_end_real(Imageui *imageui,
-	gdouble offset_x, gdouble offset_y, GtkGestureDrag *drag,
-	gpointer user_data)
-{
-#ifdef DEBUG_VERBOSE
-	printf("imageui_drag_end_real: offset_x = %g, offset_y = %g\n",
-		offset_x, offset_y);
-#endif /*DEBUG_VERBOSE*/
-
-	switch (imageui->state) {
-	case IMAGEUI_WAIT:
-		break;
-
-	case IMAGEUI_SCROLL:
-		break;
-
-	default:
-		break;
-	}
-
-	imageui->state = IMAGEUI_WAIT;
-
-	return FALSE;
-}
-
-static gboolean
-imageui_motion_real(Imageui *imageui,
-	gdouble x, gdouble y, GtkEventControllerMotion *motion, gpointer user_data)
-{
-#ifdef DEBUG_VERBOSE
-	printf("imageui_motion_real: x = %g, y = %g\n", x, y);
-#endif /*DEBUG_VERBOSE*/
-
-	imageui->last_x_gtk = x;
-	imageui->last_y_gtk = y;
-
-	imageui_changed(imageui);
-
-	return FALSE;
-}
-
 static gboolean
 imageui_scroll(GtkEventControllerMotion *self,
 	double dx, double dy, gpointer user_data)
@@ -1346,20 +961,380 @@ imageui_init(Imageui *imageui)
 #endif /*NIP4*/
 }
 
-static gboolean
-imageui_event_accu(GSignalInvocationHint *ihint,
-	GValue *return_accu, const GValue *handler_return, gpointer data)
+static void
+imageui_motion(GtkEventControllerMotion *motion,
+	gdouble x, gdouble y, gpointer user_data)
 {
-	g_assert(G_VALUE_HOLDS_BOOLEAN(handler_return));
+	Imageui *imageui = IMAGEUI(user_data);
 
-	gboolean handled = g_value_get_boolean(handler_return);
+#ifdef DEBUG_VERBOSE
+	printf("imageui_motion: x = %g, y = %g\n", x, y);
+#endif /*DEBUG_VERBOSE*/
 
-	g_value_set_boolean(return_accu, handled);
+	(void) imageui_client_call(imageui, "motion", x, y, 0, 0, 0);
 
-	// gtk uses FALSE to abort signal processing, TRUE to continue
-	// therefore, continue if not handled
-	return !handled;
+	imageui->last_x_gtk = x;
+	imageui->last_y_gtk = y;
+	imageui_changed(imageui);
 }
+
+static void
+imageui_enter(GtkEventControllerMotion *motion, gpointer user_data)
+{
+	Imageui *imageui = IMAGEUI(user_data);
+
+#ifdef DEBUG_VERBOSE
+	printf("imageui_enter:\n");
+#endif /*DEBUG_VERBOSE*/
+
+	(void) imageui_client_call(imageui, "enter", 0, 0, 0, 0, 0);
+}
+
+static void
+imageui_leave(GtkEventControllerMotion *motion, gpointer user_data)
+{
+	Imageui *imageui = IMAGEUI(user_data);
+
+#ifdef DEBUG_VERBOSE
+	printf("imageui_leave:\n");
+#endif /*DEBUG_VERBOSE*/
+
+	(void) imageui_client_call(imageui, "leave", 0, 0, 0, 0, 0);
+}
+
+static void
+imageui_drag_begin(GtkGestureDrag *drag,
+	gdouble start_x, gdouble start_y, gpointer user_data)
+{
+	Imageui *imageui = IMAGEUI(user_data);
+	GtkEventController *controller = GTK_EVENT_CONTROLLER(drag);
+    GdkModifierType modifiers =
+        gtk_event_controller_get_current_event_state(controller);
+
+#ifdef DEBUG_VERBOSE
+	printf("imageui_drag_begin: start_x = %g, start_y = %g\n",
+		start_x, start_y);
+#endif /*DEBUG_VERBOSE*/
+
+	imageui->start_x = start_x;
+	imageui->start_y = start_y;
+
+	gboolean handled = FALSE;
+
+	if (!handled)
+		handled = imageui_client_call(imageui, "drag-begin",
+			start_x, start_y, 0, 0, modifiers);
+
+	if (!handled)
+		switch (imageui->state) {
+		case IMAGEUI_WAIT:
+			handled = TRUE;
+			int window_left;
+			int window_top;
+			int window_width;
+			int window_height;
+			imageui_get_position(imageui,
+				&window_left, &window_top, &window_width, &window_height);
+			imageui->window_left = window_left;
+			imageui->window_top = window_top;
+
+			break;
+
+		case IMAGEUI_SCROLL:
+			break;
+
+		default:
+			break;
+		}
+}
+
+static void
+imageui_drag_update(GtkGestureDrag *drag,
+	gdouble offset_x, gdouble offset_y, gpointer user_data)
+{
+	Imageui *imageui = IMAGEUI(user_data);
+	GtkEventController *controller = GTK_EVENT_CONTROLLER(drag);
+    GdkModifierType modifiers =
+        gtk_event_controller_get_current_event_state(controller);
+
+#ifdef DEBUG_VERBOSE
+	printf("imageui_drag_update: offset_x = %g, offset_y = %g\n",
+		offset_x, offset_y);
+#endif /*DEBUG_VERBOSE*/
+
+	gboolean handled = FALSE;
+
+	if (!handled)
+		handled = imageui_client_call(imageui, "drag-update",
+			offset_x, offset_y,
+			0, 0, modifiers);
+
+	if (!handled)
+		switch (imageui->state) {
+		case IMAGEUI_WAIT:
+			handled = TRUE;
+
+			if (fabs(offset_x) > 5 ||
+				fabs(offset_y) > 5)
+				imageui->state = IMAGEUI_SCROLL;
+			break;
+
+		case IMAGEUI_SCROLL:
+			handled = TRUE;
+
+			imageui_set_position(imageui,
+				imageui->window_left - offset_x,
+				imageui->window_top - offset_y);
+			break;
+
+			default:
+				break;
+		}
+}
+
+static void
+imageui_drag_end(GtkGestureDrag *drag,
+	gdouble offset_x, gdouble offset_y, gpointer user_data)
+{
+	Imageui *imageui = IMAGEUI(user_data);
+	GtkEventController *controller = GTK_EVENT_CONTROLLER(drag);
+    GdkModifierType modifiers =
+        gtk_event_controller_get_current_event_state(controller);
+
+#ifdef DEBUG_VERBOSE
+	printf("imageui_drag_end: offset_x = %g, offset_y = %g\n",
+		offset_x, offset_y);
+#endif /*DEBUG_VERBOSE*/
+
+	gboolean handled = FALSE;
+
+	if (!handled)
+		handled = imageui_client_call(imageui, "drag-end",
+			offset_x, offset_y,
+			0, 0, modifiers);
+
+	if (!handled)
+		switch (imageui->state) {
+		case IMAGEUI_WAIT:
+			break;
+
+		case IMAGEUI_SCROLL:
+			break;
+
+		default:
+			break;
+		}
+
+	imageui->state = IMAGEUI_WAIT;
+}
+
+static struct {
+	int keyval;
+	double zoom;
+} magnify_keys[] = {
+	{ GDK_KEY_1, 1.0 },
+	{ GDK_KEY_2, 2.0 },
+	{ GDK_KEY_3, 3.0 },
+	{ GDK_KEY_4, 4.0 },
+	{ GDK_KEY_5, 5.0 },
+	{ GDK_KEY_6, 6.0 },
+	{ GDK_KEY_7, 7.0 },
+	{ GDK_KEY_8, 8.0 },
+	{ GDK_KEY_9, 9.0 }
+};
+
+static gboolean
+imageui_key_pressed(GtkEventControllerKey *key,
+	guint keyval, guint keycode, GdkModifierType modifiers, gpointer user_data)
+{
+	Imageui *imageui = IMAGEUI(user_data);
+	GtkScrolledWindow *scrolled_window =
+		GTK_SCROLLED_WINDOW(imageui->scrolled_window);
+
+#ifdef DEBUG_VERBOSE
+	printf("imageui_key_pressed_real: keyval = %d, keycode = %d, state = %d\n",
+		keyval, keycode, state);
+#endif /*DEBUG_VERBOSE*/
+
+	double zoom_x;
+	double zoom_y;
+	gboolean result;
+
+	gboolean handled = FALSE;
+
+	if (!handled)
+		handled = imageui_client_call(imageui, "key-pressed",
+			0, 0,
+			keyval, keycode, modifiers);
+
+	if (!handled)
+		switch (keyval) {
+		case GDK_KEY_plus:
+			imageui_magin(imageui);
+			handled = TRUE;
+			break;
+
+		case GDK_KEY_minus:
+			imageui_magout(imageui);
+			handled = TRUE;
+			break;
+
+		case GDK_KEY_0:
+			imageui_bestfit(imageui);
+			handled = TRUE;
+			break;
+
+		case GDK_KEY_i:
+			imageui_get_mouse_position(imageui, &zoom_x, &zoom_y);
+			imageui_zoom_continuous(imageui, 1.5 * ZOOM_STEP, zoom_x, zoom_y);
+			handled = TRUE;
+			break;
+
+		case GDK_KEY_o:
+			imageui_get_mouse_position(imageui, &zoom_x, &zoom_y);
+			imageui_zoom_continuous(imageui, 0.2 * ZOOM_STEP, zoom_x, zoom_y);
+			handled = TRUE;
+			break;
+
+		case GDK_KEY_Left:
+			if (modifiers & GDK_SHIFT_MASK)
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_PAGE_BACKWARD, TRUE, &result);
+			else if (modifiers & GDK_CONTROL_MASK)
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_START, TRUE, &result);
+			else
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_STEP_LEFT, TRUE, &result);
+
+			handled = TRUE;
+			break;
+
+		case GDK_KEY_Right:
+			if (modifiers & GDK_SHIFT_MASK)
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_PAGE_FORWARD, TRUE, &result);
+			else if (modifiers & GDK_CONTROL_MASK)
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_END, TRUE, &result);
+			else
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_STEP_RIGHT, TRUE, &result);
+
+			handled = TRUE;
+			break;
+
+		case GDK_KEY_Up:
+			if (modifiers & GDK_SHIFT_MASK)
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_PAGE_UP, FALSE, &result);
+			else if (modifiers & GDK_CONTROL_MASK)
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_START, FALSE, &result);
+			else
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_STEP_UP, FALSE, &result);
+
+			handled = TRUE;
+			break;
+
+		case GDK_KEY_Down:
+			if (modifiers & GDK_SHIFT_MASK)
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_PAGE_DOWN, FALSE, &result);
+			else if (modifiers & GDK_CONTROL_MASK)
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_END, FALSE, &result);
+			else
+				g_signal_emit_by_name(scrolled_window, "scroll-child",
+					GTK_SCROLL_STEP_DOWN, FALSE, &result);
+
+			handled = TRUE;
+			break;
+
+		case GDK_KEY_d:
+			imageui_toggle_debug(imageui);
+			handled = TRUE;
+			break;
+
+		default:
+			break;
+		}
+
+	if (!handled) {
+		/* keycode is the physical key, we need to search the set of keyvals
+		 * for this physical key to see if one of them is in the set of zoom
+		 * keys.
+		 */
+		g_autofree guint *keyvals = NULL;
+		int n_entries;
+		if (gdk_display_map_keycode(gdk_display_get_default(),
+			keycode, NULL, &keyvals, &n_entries)) {
+			for (int i = 0; i < n_entries; i++) {
+				int j;
+
+				for (j = 0; j < VIPS_NUMBER(magnify_keys); j++)
+					if (magnify_keys[j].keyval == keyvals[i]) {
+						double zoom;
+
+						zoom = magnify_keys[j].zoom;
+						// ctrl-N is often workspace switch, so use shift
+						if (modifiers & GDK_SHIFT_MASK)
+							zoom = 1.0 / zoom;
+
+						imageui_zoom_to_eased(imageui,
+							zoom * imageui_get_pixel_size(imageui));
+
+						handled = TRUE;
+						break;
+					}
+
+				if (j < VIPS_NUMBER(magnify_keys))
+					break;
+			}
+		}
+	}
+
+	return handled;
+}
+
+static gboolean
+imageui_key_released(GtkEventControllerKey *key,
+	guint keyval, guint keycode, GdkModifierType state, gpointer user_data)
+{
+	Imageui *imageui = IMAGEUI(user_data);
+
+	gboolean handled = FALSE;
+
+#ifdef DEBUG_VERBOSE
+	printf("imageui_key_released_real: keyval = %d, state = %d\n",
+		keyval, state);
+#endif /*DEBUG_VERBOSE*/
+
+	if (!handled)
+		handled = imageui_client_call(imageui, "key-released",
+			0, 0,
+			keyval, keycode, state);
+
+	if (!handled) {
+		switch (keyval) {
+		case GDK_KEY_i:
+		case GDK_KEY_o:
+			imageui->zoom_rate = 1.0;
+			handled = TRUE;
+			break;
+
+		default:
+			break;
+		}
+
+		if (handled)
+			imageui_stop_animation(imageui);
+	}
+
+	return handled;
+}
+
 
 static void
 imageui_class_init(ImageuiClass *class)
@@ -1389,13 +1364,6 @@ imageui_class_init(ImageuiClass *class)
 	gobject_class->dispose = imageui_dispose;
 	gobject_class->set_property = imageui_set_property;
 	gobject_class->get_property = imageui_get_property;
-
-	class->motion = imageui_motion_real;
-	class->drag_begin = imageui_drag_begin_real;
-	class->drag_update = imageui_drag_update_real;
-	class->drag_end = imageui_drag_end_real;
-	class->key_pressed = imageui_key_pressed_real;
-	class->key_released = imageui_key_released_real;
 
 	g_object_class_install_property(gobject_class, PROP_TILESOURCE,
 		g_param_spec_object("tilesource",
@@ -1457,87 +1425,11 @@ imageui_class_init(ImageuiClass *class)
 		g_cclosure_marshal_VOID__VOID,
 		G_TYPE_NONE, 0);
 
-	imageui_signals[SIG_MOTION] = g_signal_new("motion",
-		G_TYPE_FROM_CLASS(class),
-		G_SIGNAL_RUN_LAST,
-		G_STRUCT_OFFSET(ImageuiClass, motion),
-		imageui_event_accu,
-		NULL,
-		nip4_BOOLEAN__DOUBLE_DOUBLE_OBJECT,
-		G_TYPE_BOOLEAN, 3,
-		G_TYPE_DOUBLE, G_TYPE_DOUBLE, G_TYPE_OBJECT);
-
-	imageui_signals[SIG_ENTER] = g_signal_new("enter",
-		G_TYPE_FROM_CLASS(class),
-		G_SIGNAL_RUN_LAST,
-		0,
-		NULL,
-		NULL,
-		g_cclosure_marshal_VOID__VOID,
-		G_TYPE_NONE, 0);
-
-	imageui_signals[SIG_LEAVE] = g_signal_new("leave",
-		G_TYPE_FROM_CLASS(class),
-		G_SIGNAL_RUN_LAST,
-		0,
-		NULL,
-		NULL,
-		g_cclosure_marshal_VOID__VOID,
-		G_TYPE_NONE, 0);
-
-	imageui_signals[SIG_DRAG_BEGIN] = g_signal_new("drag-begin",
-		G_TYPE_FROM_CLASS(class),
-		G_SIGNAL_RUN_LAST,
-		G_STRUCT_OFFSET(ImageuiClass, drag_begin),
-		imageui_event_accu,
-		NULL,
-		nip4_BOOLEAN__DOUBLE_DOUBLE_OBJECT,
-		G_TYPE_BOOLEAN, 3,
-		G_TYPE_DOUBLE, G_TYPE_DOUBLE, G_TYPE_OBJECT);
-
-	imageui_signals[SIG_DRAG_UPDATE] = g_signal_new("drag-update",
-		G_TYPE_FROM_CLASS(class),
-		G_SIGNAL_RUN_LAST,
-		G_STRUCT_OFFSET(ImageuiClass, drag_update),
-		imageui_event_accu,
-		NULL,
-		nip4_BOOLEAN__DOUBLE_DOUBLE_OBJECT,
-		G_TYPE_BOOLEAN, 3,
-		G_TYPE_DOUBLE, G_TYPE_DOUBLE, G_TYPE_OBJECT);
-
-	imageui_signals[SIG_DRAG_END] = g_signal_new("drag-end",
-		G_TYPE_FROM_CLASS(class),
-		G_SIGNAL_RUN_LAST,
-		G_STRUCT_OFFSET(ImageuiClass, drag_end),
-		imageui_event_accu,
-		NULL,
-		nip4_BOOLEAN__DOUBLE_DOUBLE_OBJECT,
-		G_TYPE_BOOLEAN, 3,
-		G_TYPE_DOUBLE, G_TYPE_DOUBLE, G_TYPE_OBJECT);
-
-	imageui_signals[SIG_KEY_PRESSED] = g_signal_new("key-pressed",
-		G_TYPE_FROM_CLASS(class),
-		G_SIGNAL_RUN_LAST,
-		G_STRUCT_OFFSET(ImageuiClass, key_pressed),
-		imageui_event_accu,
-		NULL,
-		nip4_BOOLEAN__INT_INT_INT_OBJECT,
-		G_TYPE_BOOLEAN, 4,
-		G_TYPE_INT, G_TYPE_INT, G_TYPE_INT, G_TYPE_OBJECT);
-
-	imageui_signals[SIG_KEY_RELEASED] = g_signal_new("key-released",
-		G_TYPE_FROM_CLASS(class),
-		G_SIGNAL_RUN_LAST,
-		G_STRUCT_OFFSET(ImageuiClass, key_released),
-		imageui_event_accu,
-		NULL,
-		nip4_BOOLEAN__INT_INT_INT_OBJECT,
-		G_TYPE_BOOLEAN, 4,
-		G_TYPE_INT, G_TYPE_INT, G_TYPE_INT, G_TYPE_OBJECT);
-
+#ifdef NIP4
 	for (int i = 0; i < REGIONVIEW_RESIZE_LAST; i++)
 		imageui_cursors[i] =
 			gdk_cursor_new_from_name(imageui_cursor_names[i], NULL);
+#endif /*NIP4*/
 }
 
 #ifdef NIP4

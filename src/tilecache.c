@@ -636,7 +636,7 @@ tilecache_class_init(TilecacheClass *class)
 		G_SIGNAL_RUN_LAST,
 		0,
 		NULL, NULL,
-		nip4_VOID__POINTER_INT,
+		app_VOID__POINTER_INT,
 		G_TYPE_NONE, 2,
 		G_TYPE_POINTER,
 		G_TYPE_INT);

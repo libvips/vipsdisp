@@ -578,6 +578,7 @@ value_to_filename(const GValue *value, ValueToFilenameFn fn, void *user_data)
 		if (!fn(strip_path, user_data))
 			return FALSE;
 	}
+#ifdef NIP4
 	else if (G_VALUE_TYPE(value) == GDK_TYPE_TEXTURE) {
 		GdkTexture *texture = g_value_get_object(value);
 
@@ -602,6 +603,7 @@ value_to_filename(const GValue *value, ValueToFilenameFn fn, void *user_data)
 		if (!fn(filename, user_data))
 			return FALSE;
 	}
+#endif /*NIP4*/
 
 	return TRUE;
 }

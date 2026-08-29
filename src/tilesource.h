@@ -276,8 +276,9 @@ GType tilesource_get_type(void);
 
 Tilesource *tilesource_new_from_file(const char *filename);
 Tilesource *tilesource_new_from_image(VipsImage *image);
-Tilesource *tilesource_new_from_imageinfo(Imageinfo *ii);
+
 #ifdef NIP4
+Tilesource *tilesource_new_from_imageinfo(Imageinfo *ii);
 Tilesource *tilesource_new_from_iimage(iImage *iimage, int priority);
 gboolean tilesource_has_imageinfo(Tilesource *tilesource, Imageinfo *ii);
 #endif /*NIP4*/
@@ -297,19 +298,35 @@ void tilesource_changed(Tilesource *tilesource);
 
 void tilesource_set_synchronous(Tilesource *source, gboolean synchronous);
 
+typedef void (*TilesourceSaveFn)(void *client, VipsRect *dirty);
+
 void tilesource_draw_line(Tilesource *tilesource,
 	double *ink, int n, VipsImage *mask,
-	int x0, int y0, int x1, int y1);
+	int x0, int y0, int x1, int y1,
+	TilesourceSaveFn save, void *client);
+void tilesource_draw_line1(Tilesource *tilesource,
+	double *ink, int n,
+	int x0, int y0, int x1, int y1,
+	TilesourceSaveFn save, void *client);
 void tilesource_draw_rect(Tilesource *tilesource,
 	double *ink, int n, gboolean fill,
-	int left, int top, int width, int height);
+	int left, int top, int width, int height,
+	TilesourceSaveFn save, void *client);
 void tilesource_draw_circle(Tilesource *tilesource,
-	double *ink, int n, gboolean fill, int left, int top, int radius);
+	double *ink, int n, gboolean fill, int left, int top, int radius,
+	TilesourceSaveFn save, void *client);
 void tilesource_draw_smudge(Tilesource *tilesource, int width,
-	int x0, int y0, int x1, int y1);
+	int x0, int y0, int x1, int y1,
+	TilesourceSaveFn save, void *client);
 void tilesource_draw_flood(Tilesource *tilesource,
-	double *ink, int n, gboolean equal, int x, int y);
+	double *ink, int n, gboolean equal, int x, int y,
+	TilesourceSaveFn save, void *client);
 void tilesource_draw_mask(Tilesource *tilesource,
-	double *ink, int n, VipsImage *mask, int x, int y);
+	double *ink, int n, VipsImage *mask, int x, int y,
+	TilesourceSaveFn save, void *client);
+
+VipsImage *tilesource_draw_copy(Tilesource *tilesource, VipsRect *area);
+void tilesource_draw_paste(Tilesource *tilesource,
+	VipsImage *paste, VipsRect *position);
 
 #endif /*__TILESOURCE_H*/

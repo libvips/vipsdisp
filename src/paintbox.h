@@ -1,4 +1,4 @@
-/* the nip4 paintbox bar
+/* the paintbox bar
  */
 
 /*
@@ -48,11 +48,13 @@ typedef enum _PaintboxTool {
 
 #define PAINTBOX_TYPE (paintbox_get_type())
 
-G_DECLARE_FINAL_TYPE(Paintbox, paintbox, NIP4, PAINTBOX, GtkWidget)
+G_DECLARE_FINAL_TYPE(Paintbox, paintbox, APP, PAINTBOX, GtkWidget)
 
 #define PAINTBOX(obj) \
 	(G_TYPE_CHECK_INSTANCE_CAST((obj), PAINTBOX_TYPE, Paintbox))
 
 Paintbox *paintbox_new(Imagewindow *win);
+gboolean paintbox_undo(Paintbox *paintbox);
+gboolean paintbox_redo(Paintbox *paintbox);
 
 #endif /* __PAINTBOX_H */

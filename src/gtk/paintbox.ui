@@ -8,15 +8,17 @@
         <child type="start">
 	  <object class="GtkBox">
             <child>
-              <object class="GtkButton" id="undo">
+              <object class="GtkButton" id="undo_widget">
                 <property name="icon-name">edit-undo-symbolic</property>
 		<property name="tooltip-text">Undo paint</property>
+		<signal name="clicked" handler="paintbox_undo_clicked"/>
               </object>
             </child>
             <child>
-              <object class="GtkButton" id="redo">
+              <object class="GtkButton" id="redo_widget">
                 <property name="icon-name">edit-redo-symbolic</property>
 		<property name="tooltip-text">Redo paint</property>
+		<signal name="clicked" handler="paintbox_redo_clicked"/>
               </object>
             </child>
           </object>
@@ -106,6 +108,9 @@
               </object>
             </child>
 
+	    <!-- commented out for now, since we've not implemented
+		 the backend yet
+
             <child>
               <object class="GtkToggleButton" id="dropper">
                 <property name="icon-name">dropper-symbolic</property>
@@ -115,6 +120,8 @@
               </object>
             </child>
 
+              -->
+
           </object>
         </child>
 
@@ -123,22 +130,22 @@
 	    <property name="hexpand">true</property>
 
             <child>
+	      <object class="GtkCheckButton" id="fill">
+                <property name="label">Fill</property>
+		<property name="tooltip-text">Fill shape</property>
+              </object>
+            </child>
+
+            <child>
               <object class="GtkColorDialogButton" id="ink">
 		<property name="rgba">white</property>
                 <property name="dialog">
                   <object class="GtkColorDialog">
                     <property name="modal">1</property>
-                    <property name="with-alpha">0</property>
+                    <property name="with-alpha">1</property>
                   </object>
                 </property>
 		<property name="tooltip-text">Ink colour</property>
-              </object>
-            </child>
-
-            <child>
-	      <object class="GtkCheckButton" id="fill">
-                <property name="label">Fill</property>
-		<property name="tooltip-text">Fill shape</property>
               </object>
             </child>
 
@@ -150,7 +157,7 @@
 
             <child>
               <object class="GtkFontDialogButton" id="font">
-		<property name="font-desc">Sans 24</property>
+		<property name="font-desc">Sans 48</property>
                 <property name="dialog">
                   <object class="GtkFontDialog">
                     <property name="modal">1</property>

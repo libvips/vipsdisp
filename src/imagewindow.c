@@ -1426,7 +1426,9 @@ imagewindow_class_init(ImagewindowClass *class)
 	BIND_VARIABLE(Imagewindow, displaybar);
 	BIND_VARIABLE(Imagewindow, info_bar);
 	BIND_VARIABLE(Imagewindow, paintbox);
+#ifdef NIP4
 	BIND_VARIABLE(Imagewindow, region_menu);
+#endif /*NIP4*/
 
 	BIND_CALLBACK(imagewindow_pressed);
 	BIND_CALLBACK(imagewindow_error_clicked);

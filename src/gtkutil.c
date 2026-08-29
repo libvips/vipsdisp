@@ -629,4 +629,3 @@ weakref_set(GObject **pointer, GObject *object)
 }
 
 #define WEAKREF_SET(A, B) weakref_set((GObject **) &(A), (GObject *) (B));
-

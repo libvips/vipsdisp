@@ -45,8 +45,6 @@ draw_mask(VipsImage *image, VipsPel *ink, VipsImage *mask, int x, int y)
 	VipsRect mask_clip;
 
 	if (vips_check_coding_noneorlabq("draw_mask", image) ||
-		vips_image_inplace(image) ||
-		vips_image_wio_input(mask) ||
 		vips_check_mono("draw_mask", mask) ||
 		vips_check_uncoded("draw_mask", mask) ||
 		vips_check_format("draw_mask", mask, VIPS_FORMAT_UCHAR))

@@ -255,6 +255,9 @@ paintbox_make_brush(Paintbox *paintbox)
 		NULL))
 		return FALSE;
 
+	// force to memory ... don't do this in draw_mask, it'd be very slow
+	(void) vips_image_wio_input(mask);
+
 	paintbox->mask = mask;
 
 	return TRUE;
@@ -280,7 +283,8 @@ paintbox_make_text(Paintbox *paintbox, const char *text)
 	VIPS_UNREF(o);
 
 	VipsImage *mask;
-	if (vips_text(&mask, text, "font", font, NULL))
+	if (vips_text(&mask, text, "font", font, NULL) ||
+		vips_image_wio_input(mask))
 		return FALSE;
 
 	paintbox->mask = mask;

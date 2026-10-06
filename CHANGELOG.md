@@ -1,5 +1,7 @@
 master
 
+- add missing setlocale()
+
 ## 4.2.0 17/9/26
 
 - resync with nip4 [kleisauke]
